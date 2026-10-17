@@ -116,7 +116,9 @@ when stopped).
 
 ## Licensing
 
-See `LICENSE`. JUCE is used under its EULA (free up to the lowest revenue tier; tiers are
-by total company revenue, not plugin revenue). Distributing VST3 builds requires accepting
-Steinberg's VST 3 licence. Nothing here is GPL-contaminated, so going commercial later only
-requires picking the right JUCE tier.
+The repository carries the organisation's default GPL-3.0 `LICENSE`; Curtis Tech Solutions
+owns the first-party code and can relicense it for a commercial release. `THIRD_PARTY_NOTICES.md`
+covers JUCE (EULA with revenue tiers, or AGPLv3), the VST3 SDK (Steinberg licence required to
+distribute VST3 builds) and pluginval. No GPL-only code is compiled into the plugins beyond what
+the chosen JUCE/VST3 terms already cover, so going commercial later only means picking the right
+JUCE tier and accepting Steinberg's agreement.
