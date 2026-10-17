@@ -1,0 +1,24 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+dist/
+out/
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.swp
+.DS_Store
+compile_commands.json
+
+# JUCE artefacts that may land in the tree
+*_artefacts/
+JuceLibraryCode/
+
+# pluginval downloads
+pluginval/
+pluginval.zip
