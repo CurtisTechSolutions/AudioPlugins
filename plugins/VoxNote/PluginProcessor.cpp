@@ -146,7 +146,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     auto& tracker = trackers[(size_t) activeTracker];
 
     if (pendingAllNotesOff.exchange (false))
-        midi.addEvent (juce::MidiMessage::allNotesOff (channel), 0);
+        midi.addEvent (juce::MidiMessage::allNotesOff (activeChannel), 0);
 
     // Feed the tracker sample by sample so each frame's events land at the
     // right position inside the block.
@@ -166,18 +166,19 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 switch (e.type)
                 {
                     case ap::NoteTracker::Event::Type::NoteOn:
+                        activeChannel = channel;
                         midi.addEvent (juce::MidiMessage::noteOn (channel, e.note, (juce::uint8) e.velocity), i);
                         monitorTarget = ap::midiToHz ((float) e.note);
                         monitorBend = 0.0f;
                         break;
                     case ap::NoteTracker::Event::Type::NoteOff:
-                        midi.addEvent (juce::MidiMessage::noteOff (channel, e.note), i);
+                        midi.addEvent (juce::MidiMessage::noteOff (activeChannel, e.note), i);
                         monitorTarget = 0.0f;
                         break;
                     case ap::NoteTracker::Event::Type::PitchBend:
                     {
                         const int wheel = juce::jlimit (0, 16383, (int) std::lround (8192.0f + e.bend * 8191.0f));
-                        midi.addEvent (juce::MidiMessage::pitchWheel (channel, wheel), i);
+                        midi.addEvent (juce::MidiMessage::pitchWheel (activeChannel, wheel), i);
                         monitorBend = e.bend * prm.bendRange->load();
                         break;
                     }

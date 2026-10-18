@@ -52,6 +52,23 @@ public:
     void setThreshold (float t) noexcept      { detector.setThreshold (t); }
     void setMedianFilter (bool on) noexcept   { useMedian = on; }
 
+    /** Absolute sample index of the newest sample pushed (the frame clock). */
+    int64_t currentTime() const noexcept      { return writeTime; }
+
+    /** Restart the stream at an externally supplied clock (e.g. another tracker's
+        currentTime() when switching, or 0 after a host reset) so frame timestamps
+        line up with whoever consumes them. Clears the analysis buffer. */
+    void resync (int64_t time) noexcept
+    {
+        writeTime = time;
+        fifoPos = 0;
+        filled = 0;
+        sinceLast = 0;
+        rmsAcc = 0.0;
+        rmsCount = 0;
+        historyCount = 0;
+    }
+
     int hopSize() const noexcept              { return hop; }
 
     /** Samples between the newest input sample and the time a fresh frame describes. */

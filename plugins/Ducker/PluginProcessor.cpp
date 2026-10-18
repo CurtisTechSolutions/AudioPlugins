@@ -206,7 +206,10 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         float targetGain;
         if (mode == Mode::Ghost)
         {
-            const double beat = transportPlaying ? ppq + (double) i * beatsPerSample : freeRunBeats + (double) i * beatsPerSample;
+            // The audio is delayed by the lookahead, so the dip must be computed for the sample
+            // that is leaving now, not the one arriving.
+            const double sampleOffset = (double) (i - lookaheadSamples);
+            const double beat = transportPlaying ? ppq + sampleOffset * beatsPerSample : freeRunBeats + sampleOffset * beatsPerSample;
             targetGain = ghost.gainAtBeat (beat, bpm, division, offset);
         }
         else

@@ -287,8 +287,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 
     // --- Reverb
     const float reverbMix = prm.reverbMix->load() * 0.01f;
-    if (reverbMix > 0.0f || reverbTailActive)
+    if (reverbMix > 0.0f)
+        reverbTailBlocks = (int) (4.0 * sr / juce::jmax (1, numSamples));   // ride the tail out for ~4 s
+    if (reverbMix > 0.0f || reverbTailBlocks > 0)
     {
+        if (reverbMix <= 0.0f) --reverbTailBlocks;
         juce::dsp::Reverb::Parameters p;
         p.roomSize = prm.reverbSize->load() * 0.01f;
         p.damping = 0.4f;
@@ -298,7 +301,6 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         reverb.setParameters (p);
         juce::dsp::AudioBlock<float> block (buffer);
         reverb.process (juce::dsp::ProcessContextReplacing<float> (block));
-        reverbTailActive = reverbMix > 0.0f;
     }
 
     // --- Master

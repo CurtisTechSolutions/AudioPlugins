@@ -122,8 +122,8 @@ LIFE are modulators: they only move ingredients that are already turned up.
 
 **Ducker** — in *External sidechain* mode route the kick into the plugin's sidechain input
 (the header shows a green dot once the host connects it). *Ghost* mode needs no routing:
-it ducks on every *Division* boundary using the host tempo and transport (or *Free BPM*
-when stopped).
+it ducks on every *Division* boundary locked to the host transport while it plays, free-runs at
+the host tempo when it stops, and uses *Free BPM* only when the host reports no tempo at all.
 
 ## Licensing
 

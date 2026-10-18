@@ -90,6 +90,7 @@ private:
     float monitorEnv = 0.0f, monitorTarget = 0.0f, monitorBend = 0.0f;
     double sr = 44100.0;
     std::atomic<bool> pendingAllNotesOff { false };
+    int activeChannel = 1;    // channel the sounding note was started on
 
     struct Raw
     {

@@ -311,8 +311,8 @@ class PolySynth : public juce::Synthesiser
 public:
     void setPolyphony (int n) noexcept { limit = juce::jmax (1, n); }
 
-    juce::SynthesiserVoice* findFreeVoice (juce::SynthesiserSound* sound, int midiChannel,
-                                           int midiNote, bool stealIfNoneAvailable) const override
+    juce::SynthesiserVoice* findFreeVoice (juce::SynthesiserSound* sound, int /*midiChannel*/,
+                                           int /*midiNote*/, bool stealIfNoneAvailable) const override
     {
         const int n = juce::jmin (limit, getNumVoices());
         for (int i = 0; i < n; ++i)
@@ -321,9 +321,24 @@ public:
             if (! v->isVoiceActive() && v->canPlaySound (sound))
                 return v;
         }
-        if (stealIfNoneAvailable)
-            return findVoiceToSteal (sound, midiChannel, midiNote);
-        return nullptr;
+        if (! stealIfNoneAvailable)
+            return nullptr;
+
+        // Steal only inside the polyphony window (JUCE's own findVoiceToSteal would
+        // happily hand out an idle voice above the limit): released notes first,
+        // then the oldest held note.
+        juce::SynthesiserVoice* released = nullptr;
+        juce::SynthesiserVoice* oldest = nullptr;
+        for (int i = 0; i < n; ++i)
+        {
+            auto* v = getVoice (i);
+            if (! v->canPlaySound (sound)) continue;
+            if (v->isPlayingButReleased() && (released == nullptr || v->wasStartedBefore (*released)))
+                released = v;
+            if (oldest == nullptr || v->wasStartedBefore (*oldest))
+                oldest = v;
+        }
+        return released != nullptr ? released : oldest;
     }
 
 private:

@@ -149,6 +149,8 @@ struct Host
     }
 };
 
+double bandRmsOf (const std::vector<float>& v, double lowHz, double highHz, size_t from);
+
 double rmsOf (const std::vector<float>& v, size_t from, size_t to)
 {
     to = std::min (to, v.size());
@@ -225,6 +227,21 @@ void testStrata (Host& host)
     check (rmsOf (chord, 2000, chord.size()) > level * 1.2, "three notes are louder than one");
     for (int n : { 60, 64, 67 }) host.midi.addEvent (juce::MidiMessage::noteOff (1, n), 0);
     for (int b = 0; b < 100; ++b) host.processBlock ([] (int, int, juce::int64) { return 0.0f; });
+
+    // Polyphony limit: Voices = 1 must steal, so a second note silences the first.
+    host.setParam ("Voices", "1");
+    host.setParam ("Release", "20 ms");
+    host.midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+    for (int b = 0; b < 10; ++b) host.processBlock ([] (int, int, juce::int64) { return 0.0f; });
+    host.midi.addEvent (juce::MidiMessage::noteOn (1, 67, (juce::uint8) 100), 0);
+    std::vector<float> mono;
+    for (int b = 0; b < 30; ++b) host.processBlock ([] (int, int, juce::int64) { return 0.0f; }, &mono);
+    const double c4 = bandRmsOf (mono, 255.0, 268.0, 4096);
+    const double g4 = bandRmsOf (mono, 385.0, 400.0, 4096);
+    check (g4 > c4 * 4.0, "Voices = 1 steals: only the newest note sounds");
+    for (int n : { 60, 67 }) host.midi.addEvent (juce::MidiMessage::noteOff (1, n), 0);
+    for (int b = 0; b < 50; ++b) host.processBlock ([] (int, int, juce::int64) { return 0.0f; });
+    host.setParam ("Voices", "8");
 }
 
 void testVoxNote (Host& host)
@@ -390,7 +407,7 @@ void testFrisson (Host& host)
     // Pink test material, stored so we can compare against the delayed input.
     std::vector<float> pinkL, pinkR;
     for (int i = 0; i < kBlock * 400; ++i) { pinkL.push_back (pinkSample (i, 0)); pinkR.push_back (pinkSample (i, 1)); }
-    auto feed = [&] (int ch, int i, juce::int64 n) { return ch == 0 ? pinkL[(size_t) (n % (juce::int64) pinkL.size())] : pinkR[(size_t) (n % (juce::int64) pinkR.size())]; };
+    auto feed = [&] (int ch, int, juce::int64 n) { return ch == 0 ? pinkL[(size_t) (n % (juce::int64) pinkL.size())] : pinkR[(size_t) (n % (juce::int64) pinkR.size())]; };
 
     // Dose 0 -> bit-exact (latency only) bypass.
     host.setParam ("Dose", "0 %");

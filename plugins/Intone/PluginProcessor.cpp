@@ -126,6 +126,7 @@ void Processor::prepareToPlay (double sampleRate, int samplesPerBlock)
 void Processor::reset()
 {
     timeline.clear();
+    for (auto& t : trackers) t.resync (0);     // keep the frame clock aligned with the shifters' clock
     for (auto& s : shifters) s.reset();
     for (auto& c : chains)
     {
@@ -146,7 +147,13 @@ bool Processor::isBusesLayoutSupported (const BusesLayout& layouts) const
 
 void Processor::updateParams()
 {
-    activeTracker = juce::jlimit (0, 2, (int) prm.tracking->load());
+    const int wanted = juce::jlimit (0, 2, (int) prm.tracking->load());
+    if (wanted != activeTracker)
+    {
+        // Hand the clock over so timeline lookups stay aligned after a range switch.
+        trackers[(size_t) wanted].resync (trackers[(size_t) activeTracker].currentTime());
+        activeTracker = wanted;
+    }
     const float sens = prm.sensitivity->load() * 0.01f;
     for (auto& t : trackers) t.setThreshold (ap::lerp (0.08f, 0.35f, sens));
 

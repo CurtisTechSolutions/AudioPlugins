@@ -69,7 +69,7 @@ public:
     bool acceptsMidi() const override  { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 4.0; }
+    double getTailLengthSeconds() const override { return 10.0; }   // release max 8 s + reverb
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -91,7 +91,8 @@ private:
     Settings settings;
     PolySynth synth;
     float lastNoteHz = 0.0f;
-    bool  delayTailActive = false, reverbTailActive = false;
+    bool  delayTailActive = false;
+    int   reverbTailBlocks = 0;      // keeps the reverb running after its mix drops to 0
 
     juce::dsp::Chorus<float> chorus;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayL { 192000 }, delayR { 192000 };
