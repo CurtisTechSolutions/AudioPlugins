@@ -1,0 +1,211 @@
+# Reusable build: compiles every plugin on Windows, macOS and Linux, runs the
+# unit + host tests and pluginval, and uploads one zip per platform.
+# Called by ci.yml (fast, no LTO) and release.yml (optimised, signed if the
+# macOS secrets exist).
+
+name: Build plugins
+
+on:
+  workflow_call:
+    inputs:
+      lto:
+        description: Link-time optimisation (slow; for releases)
+        type: boolean
+        default: false
+      label:
+        description: Version label used in zip names, e.g. 0.2.0 or 0.2.0-ab12cd3
+        type: string
+        required: true
+      retention-days:
+        type: number
+        default: 14
+    secrets:
+      MACOS_CERT_P12_BASE64:
+        required: false
+      MACOS_CERT_PASSWORD:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APPLE_APP_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  PLUGINS: Strata VoxNote Intone Ducker Frisson
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            pluginval_zip: pluginval_Windows.zip
+            pluginval_bin: pluginval.exe
+          - name: macos
+            os: macos-latest
+            pluginval_zip: pluginval_macOS.zip
+            pluginval_bin: pluginval.app/Contents/MacOS/pluginval
+          - name: linux
+            os: ubuntu-latest
+            pluginval_zip: pluginval_Linux.zip
+            pluginval_bin: pluginval
+
+    env:
+      HAS_MACOS_CERT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
+      HAS_NOTARY: ${{ secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build libasound2-dev libjack-jackd2-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libxi-dev \
+            libfreetype-dev libfontconfig1-dev libcurl4-openssl-dev libgl1-mesa-dev
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+
+      - name: Compiler cache
+        uses: mozilla-actions/sccache-action@v0.0.11
+
+      - name: Cache JUCE source
+        uses: actions/cache@v6
+        with:
+          path: .deps
+          key: juce-${{ runner.os }}-${{ hashFiles('cmake/JUCE.cmake') }}
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DAP_ENABLE_LTO=${{ inputs.lto && 'ON' || 'OFF' }}
+          -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.deps"
+          -DCMAKE_C_COMPILER_LAUNCHER=sccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          ${{ runner.os == 'Windows' && '-DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl' || '' }}
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Compiler cache stats
+        if: always()
+        run: sccache --show-stats || true
+
+      - name: Unit + host tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Collect plugins
+        run: |
+          mkdir -p dist
+          for p in $PLUGINS; do
+            cmake -E copy_directory "build/plugins/$p/${p}_artefacts/Release/VST3/$p.vst3" "dist/$p.vst3"
+          done
+          cp packaging/INSTALL.txt dist/INSTALL.txt
+          echo "${{ inputs.label }} (${GITHUB_SHA::7})" > dist/VERSION.txt
+
+      # --- macOS signing -------------------------------------------------------
+      # Without secrets the bundles are ad-hoc signed (fine on the build machine;
+      # downloads need `xattr -dr com.apple.quarantine`). With a Developer ID
+      # certificate they are signed with the hardened runtime, and with notary
+      # credentials as well they are notarised and stapled.
+
+      - name: Ad-hoc sign (macOS, no certificate)
+        if: runner.os == 'macOS' && env.HAS_MACOS_CERT != 'true'
+        run: for b in dist/*.vst3; do codesign --force --deep -s - "$b"; done
+
+      - name: Import Developer ID certificate (macOS)
+        if: runner.os == 'macOS' && env.HAS_MACOS_CERT == 'true'
+        env:
+          CERT_B64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          echo "$CERT_B64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')
+          test -n "$IDENTITY" || { echo "No 'Developer ID Application' identity in the certificate"; exit 1; }
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Developer ID sign (macOS)
+        if: runner.os == 'macOS' && env.HAS_MACOS_CERT == 'true'
+        run: |
+          for b in dist/*.vst3; do
+            codesign --force --deep --timestamp --options runtime -s "$SIGN_IDENTITY" "$b"
+            codesign --verify --strict --verbose=2 "$b"
+          done
+
+      - name: Notarise and staple (macOS)
+        if: runner.os == 'macOS' && env.HAS_MACOS_CERT == 'true' && env.HAS_NOTARY == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          ditto -c -k --keepParent dist "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          for b in dist/*.vst3; do xcrun stapler staple "$b"; done
+
+      # --- validation & packaging ---------------------------------------------
+
+      - name: pluginval (strictness 10)
+        run: |
+          curl -sSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/latest/download/${{ matrix.pluginval_zip }}"
+          mkdir -p pluginval && (cd pluginval && unzip -q ../pluginval.zip)
+          for p in $PLUGINS; do
+            echo "== $p"
+            "pluginval/${{ matrix.pluginval_bin }}" --strictness-level 10 --skip-gui-tests \
+              --validate-in-process --timeout-ms 300000 --validate "dist/$p.vst3"
+          done
+
+      - name: Zip
+        run: |
+          ZIP="AudioPlugins-${{ inputs.label }}-${{ matrix.name }}.zip"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            (cd dist && 7z a -tzip -r "../$ZIP" . > /dev/null)
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            ditto -c -k --sequesterRsrc dist "$ZIP"     # keeps signatures and symlinks intact
+          else
+            (cd dist && zip -qry "../$ZIP" .)
+          fi
+          ls -la "$ZIP"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          # archive: false uploads the zip as-is; the artifact is named after the file.
+          path: ${{ env.ZIP }}
+          archive: false
+          retention-days: ${{ inputs.retention-days }}
+          if-no-files-found: error

@@ -31,7 +31,9 @@ docs/prd/        Product requirement documents for every plugin and every Frisso
 tests/           ap_tests (core unit tests) and host/ (loads each built .vst3 through
                  JUCE's headless host and checks behaviour end to end)
 cmake/           JUCE fetch (pinned tag) and the ap_add_plugin() helper
-.github/         CI: build + test + pluginval on Windows / macOS / Linux, upload VST3s
+.github/         CI (every push/PR) and automated releases — see "CI & releases" below
+packaging/       Files shipped inside every release zip (INSTALL.txt)
+version.txt      The version; bumped by release-please, read by CMake
 ```
 
 ## Building
@@ -73,7 +75,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
 ```
 
-Or just push and download the `vst3-windows` artifact from the Actions run.
+Or just push and download the `AudioPlugins-…-windows.zip` artifact from the CI run.
 
 ### macOS
 
@@ -97,8 +99,21 @@ Proper Developer-ID signing + notarization is a TODO before sharing with other p
   VoxNote turns a 224 Hz tone into A3 with pitch bend and a matching note-off, Intone
   pulls a sharp A3 to 220 Hz and snaps to C major, Ducker ducks >6 dB from the sidechain
   and pumps on the beat in ghost mode with the right latency.
-- CI additionally runs [pluginval](https://github.com/Tracktion/pluginval) at strictness 10
-  on every plugin on every platform.
+- CI and release builds additionally run [pluginval](https://github.com/Tracktion/pluginval)
+  at strictness 10 on every plugin on every platform.
+
+## CI & releases
+
+| Workflow | When | What |
+|---|---|---|
+| **CI** (`ci.yml`) | every push to `main` and every PR (docs-only changes skipped) | builds all plugins on Windows/macOS/Linux with sccache and no LTO, runs `ctest` (unit + VST3 host tests) and pluginval strictness 10, uploads `AudioPlugins-<version>-<sha>-<os>.zip` as run artifacts (14 days) |
+| **Release** (`release.yml`) | every push to `main` | release-please keeps a `chore(main): release x.y.z` PR open from Conventional Commits; merging it tags the release, then optimised LTO builds are attached to it with `SHA256SUMS.txt` |
+| **PR title** (`pr-title.yml`) | PRs | enforces Conventional Commit titles (`feat:`, `fix:`, …) so release-please can version correctly |
+| Dependabot | monthly | one grouped PR bumping the GitHub Actions versions |
+
+The day-to-day loop is: open a PR with a `feat:`/`fix:` title → CI green → squash-merge →
+merge the release PR when you want to ship. Details, version-bump rules and the optional macOS
+signing/notarisation secrets are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Using the plugins
 

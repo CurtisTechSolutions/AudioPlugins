@@ -1,0 +1,103 @@
+# Releases.
+#
+# 1. On every push to main, release-please reads the Conventional Commits since
+#    the last release and keeps a "chore(main): release x.y.z" PR up to date
+#    (CHANGELOG.md + version.txt).
+# 2. Merging that PR creates the tag and GitHub release; this workflow then
+#    builds optimised (LTO), signed-if-configured binaries for all platforms and
+#    attaches the zips plus SHA256SUMS.txt to the release.
+#
+# Run it manually with a tag to (re)build and attach assets to an existing
+# release, e.g. after adding signing secrets.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and attach assets to (e.g. v0.2.0)
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.tag || 'auto' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      created: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - id: rp
+        uses: googleapis/release-please-action@v5
+        with:
+          # An org/repo PAT lets the release PR trigger CI and works even when
+          # "Allow GitHub Actions to create pull requests" is off; otherwise
+          # the built-in token is used.
+          token: ${{ secrets.MY_RELEASE_PLEASE_TOKEN || github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  target:
+    name: Resolve release
+    needs: release-please
+    # Runs for a fresh release-please release or a manual dispatch.
+    if: always() && (needs.release-please.outputs.created == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.t.outputs.tag }}
+      label: ${{ steps.t.outputs.label }}
+    steps:
+      - id: t
+        env:
+          TAG: ${{ inputs.tag || needs.release-please.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null   # fail early on a typo
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "label=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: target
+    if: always() && needs.target.result == 'success'
+    uses: ./.github/workflows/build-plugins.yml
+    with:
+      lto: true
+      label: ${{ needs.target.outputs.label }}
+      retention-days: 3
+    secrets: inherit
+
+  publish:
+    name: Attach to release
+    needs: [target, build]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: AudioPlugins-*
+          merge-multiple: true
+          path: assets
+      - name: Checksums
+        working-directory: assets
+        run: |
+          sha256sum AudioPlugins-*.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.target.outputs.tag }}
+        run: gh release upload "$TAG" assets/* --clobber -R "$GITHUB_REPOSITORY"

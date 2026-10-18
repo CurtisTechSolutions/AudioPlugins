@@ -81,8 +81,11 @@ function(ap_add_plugin target)
             juce::juce_gui_basics
         PUBLIC
             juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags)
+
+    if(AP_ENABLE_LTO)
+        target_link_libraries(${target} PUBLIC juce::juce_recommended_lto_flags)
+    endif()
 
     if(AP_BUILD_STANDALONE)
         target_link_libraries(${target} PRIVATE juce::juce_audio_utils juce::juce_audio_devices)
