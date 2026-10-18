@@ -5,7 +5,8 @@ add_executable(ap_tests
     test_notes.cpp
     test_shifter.cpp
     test_synthesis.cpp
-    test_dynamics.cpp)
+    test_dynamics.cpp
+    test_core_extras.cpp)
 
 target_link_libraries(ap_tests PRIVATE ap_core)
 

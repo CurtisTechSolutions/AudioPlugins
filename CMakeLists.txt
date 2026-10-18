@@ -29,9 +29,13 @@ endif()
 # Shared, framework-independent DSP (header-only).
 add_subdirectory(core)
 
+# Frisson's knob modules are plain C++ on top of core (no JUCE), built always.
+add_subdirectory(plugins/Frisson/modules)
+
 if(AP_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+    add_subdirectory(tests/frisson)
 endif()
 
 if(AP_BUILD_PLUGINS)
