@@ -48,6 +48,9 @@ Processor::Processor()
     prm.spaceRoom = raw (apvts, ids::spaceRoom);       prm.rushCeiling = raw (apvts, ids::rushCeiling);
     prm.rushAutoGain = raw (apvts, ids::rushAutoGain);
     for (auto& a : activity) a.store (0.0f);
+
+    // Each instance drifts on its own schedule, so tracks never breathe in lockstep.
+    life.setSeed ((uint32_t) (reinterpret_cast<uintptr_t> (this) >> 4) | 1u);
 }
 
 void Processor::prepareToPlay (double sampleRate, int samplesPerBlock)

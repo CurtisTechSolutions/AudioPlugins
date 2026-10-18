@@ -9,16 +9,16 @@ buildable, separately tested module).
 | [voxnote.md](voxnote.md) | VoxNote — voice-to-MIDI | shipped v0.1 |
 | [intone.md](intone.md) | Intone — pitch correction + vocal chain | shipped v0.1 |
 | [ducker.md](ducker.md) | Ducker — sidechain + ghost ducking | shipped v0.1 |
-| [frisson.md](frisson.md) | Frisson — reward-system sound enhancer (umbrella) | in build |
-| [frisson-weight.md](frisson-weight.md) | WEIGHT knob | in build |
-| [frisson-warmth.md](frisson-warmth.md) | WARMTH knob | in build |
-| [frisson-focus.md](frisson-focus.md) | FOCUS knob | in build |
-| [frisson-groove.md](frisson-groove.md) | GROOVE knob | in build |
-| [frisson-shine.md](frisson-shine.md) | SHINE knob | in build |
-| [frisson-space.md](frisson-space.md) | SPACE knob | in build |
-| [frisson-rush.md](frisson-rush.md) | RUSH knob | in build |
-| [frisson-chills.md](frisson-chills.md) | CHILLS modulator | in build |
-| [frisson-life.md](frisson-life.md) | LIFE modulator | in build |
+| [frisson.md](frisson.md) | Frisson — reward-system sound enhancer (umbrella) | built v0.1 (unit + host tests, pluginval 10) |
+| [frisson-weight.md](frisson-weight.md) | WEIGHT knob | built v0.1 (unit + host tests, pluginval 10) |
+| [frisson-warmth.md](frisson-warmth.md) | WARMTH knob | built v0.1 (unit + host tests, pluginval 10) |
+| [frisson-focus.md](frisson-focus.md) | FOCUS knob | built v0.1 (unit + host tests, pluginval 10) |
+| [frisson-groove.md](frisson-groove.md) | GROOVE knob | built v0.1 (unit + host tests, pluginval 10) |
+| [frisson-shine.md](frisson-shine.md) | SHINE knob | built v0.1 (unit + host tests, pluginval 10) |
+| [frisson-space.md](frisson-space.md) | SPACE knob | built v0.1 (unit + host tests, pluginval 10) |
+| [frisson-rush.md](frisson-rush.md) | RUSH knob | built v0.1 (unit + host tests, pluginval 10) |
+| [frisson-chills.md](frisson-chills.md) | CHILLS modulator | built v0.1 (unit + host tests, pluginval 10) |
+| [frisson-life.md](frisson-life.md) | LIFE modulator | built v0.1 (unit + host tests, pluginval 10) |
 
 ## Template
 

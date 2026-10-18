@@ -414,9 +414,9 @@ void testFrisson (Host& host)
     host.setParam ("Match", "Off");
     host.playHead.samples = 0;
     std::vector<float> out;
-    for (int b = 0; b < 40; ++b) host.processBlock (feed, &out);
+    for (int b = 0; b < 120; ++b) host.processBlock (feed, &out);   // > 1 s: lets every module's fade-out finish
     float maxd = 0.0f;
-    for (size_t i = (size_t) latency + 2048; i < out.size(); ++i)
+    for (size_t i = (size_t) latency + 48000; i < out.size(); ++i)
         maxd = std::max (maxd, std::fabs (out[i] - pinkL[i - (size_t) latency]));
     check (maxd < 1.0e-5f, "Dose 0 is a latency-only bypass");
 
@@ -425,7 +425,10 @@ void testFrisson (Host& host)
     for (const char* k : { "Weight", "Warmth", "Rush", "Focus", "Shine", "Space", "Groove", "Chills", "Life" })
         host.setParam (k, "40 %");
     out.clear();
+    const auto t0 = juce::Time::getHighResolutionTicks();
     for (int b = 0; b < 400; ++b) host.processBlock (feed, &out);
+    const double seconds = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - t0);
+    std::printf ("  (full recipe: %.1f%% of real time for %d blocks of %d)\n", 100.0 * seconds / (400.0 * kBlock / kSampleRate), 400, kBlock);
     check (host.outputIsFinite(), "full recipe is finite");
     const double dryLevel = rmsOf (pinkL, 20000, pinkL.size());
     const double wetLevel = rmsOf (out, 20000, out.size());
@@ -456,12 +459,14 @@ void testFrisson (Host& host)
     host.setParam ("Rush Auto Gain", "Off");
     host.setParam ("Match", "On");
     out.clear();
+    const juce::int64 matchStart = host.playHead.samples;
     for (int b = 0; b < 500; ++b) host.processBlock (feed, &out);   // > 5 s so both meters settle
     // Correlation with the delayed dry input must be ~1 (it is the dry signal, just gained).
     double sab = 0.0, saa = 0.0, sbb = 0.0;
     for (size_t i = out.size() - 48000; i < out.size(); ++i)
     {
-        const double a = out[i], b = pinkL[(i - (size_t) latency) % pinkL.size()];
+        const double a = out[i];
+        const double b = pinkL[(size_t) ((matchStart + (juce::int64) i - latency) % (juce::int64) pinkL.size())];
         sab += a * b; saa += a * a; sbb += b * b;
     }
     check (sab / std::sqrt (saa * sbb) > 0.98, "MATCH outputs the dry signal");

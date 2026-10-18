@@ -13,7 +13,7 @@ namespace frisson
 {
 
 /** A rotary knob with a name and an activity ring that shows what the module is doing. */
-class RingKnob : public juce::Component, private juce::Timer
+class RingKnob : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
 {
 public:
     RingKnob (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramId,

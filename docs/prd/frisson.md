@@ -125,7 +125,26 @@ chain latency. The processor runs two `ap::LoudnessMeter`s (dry, wet).
   loudness (within 1 dB after 3 s); state round-trips.
 - pluginval strictness 10 passes.
 
-## 6. Out of scope / later
+## 6. Status and known issues (v0.1)
+
+Built and verified: 74 module test cases (1,362 checks), host test through the
+VST3 wrapper, pluginval strictness 10, 2.1 % of one core for the full recipe at
+48 kHz / 512 on the CI-class Linux box. Not yet done: listening tests on real
+music, which is what the CHILLS thresholds and the GROOVE pocket weights need
+most.
+
+- `ap::Biquad` (transposed direct form II) leaves a small residue (~−36 dB)
+  when its gain coefficients jump; SHINE uses a state-variable shelf for this
+  reason, the other modules smooth their coefficient updates on a 32-sample
+  grid. A modulation-safe EQ in core is the v0.2 fix.
+- GROOVE's attack emphasis can stack to ~+9 dB with modulation and pocket
+  weighting; nothing clips inside the chain, but with RUSH at 0 there is no
+  limiter after it, so hot material may need the Output trim.
+- Module PRD deviations are recorded in each module's header comment and
+  commit message (WEIGHT uses Chebyshev harmonics; SHINE mixes only the even
+  part of the exciter; CHILLS' novelty baseline is the 0.3–8 s band maximum).
+
+## 7. Out of scope / later
 
 Oversampling of the saturating stages (v0.2), presets browser, AU/CLAP, a
 "learn" mode that proposes a recipe from the input's spectral balance,
