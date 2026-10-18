@@ -1,0 +1,50 @@
+# Continuous integration: every push to main and every pull request builds and
+# tests all plugins on Windows, macOS and Linux (no LTO, compiler-cached), and
+# uploads the VST3 zips as run artifacts for 14 days.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "LICENSE"
+      - ".github/dependabot.yml"
+      - ".github/workflows/pr-title.yml"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "LICENSE"
+      - ".github/dependabot.yml"
+      - ".github/workflows/pr-title.yml"
+  workflow_dispatch:
+
+concurrency:
+  # One run per branch/PR; a newer push cancels the older run (but never on main).
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  label:
+    name: Version label
+    runs-on: ubuntu-latest
+    outputs:
+      label: ${{ steps.v.outputs.label }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        run: echo "label=$(tr -d '[:space:]' < version.txt)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: label
+    uses: ./.github/workflows/build-plugins.yml
+    with:
+      lto: false
+      label: ${{ needs.label.outputs.label }}
+      retention-days: 14

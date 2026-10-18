@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(CurtisAudioPlugins VERSION 0.1.0 LANGUAGES C CXX)
+# version.txt is the single source of truth for the version; release-please
+# bumps it in its release PR, so tagged builds always carry the tag's version.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" AP_VERSION)
+string(STRIP "${AP_VERSION}" AP_VERSION)
+
+project(CurtisAudioPlugins VERSION ${AP_VERSION} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +22,7 @@ option(AP_BUILD_TESTS        "Build the core DSP unit tests"                    
 option(AP_BUILD_STANDALONE   "Also build Standalone apps (needs ALSA dev package on Linux)"  OFF)
 option(AP_COPY_PLUGINS       "Copy built plugins into the user's plugin folder after build"  OFF)
 option(AP_LINUX_MINIMAL_X11  "Build without the optional X11 extension dev packages"         OFF)
+option(AP_ENABLE_LTO         "Link-time optimisation for plugins (slow links; on for releases)" ON)
 
 # Universal binaries on macOS unless the caller already chose architectures.
 if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
