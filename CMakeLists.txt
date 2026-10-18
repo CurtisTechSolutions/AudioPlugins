@@ -48,6 +48,7 @@ if(AP_BUILD_PLUGINS)
     add_subdirectory(plugins/VoxNote)
     add_subdirectory(plugins/Intone)
     add_subdirectory(plugins/Ducker)
+    add_subdirectory(plugins/Frisson)
 
     if(AP_BUILD_TESTS)
         add_subdirectory(tests/host)

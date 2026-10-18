@@ -66,7 +66,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          for p in Strata VoxNote Intone Ducker; do
+          for p in Strata VoxNote Intone Ducker Frisson; do
             cmake -E copy_directory "build/plugins/$p/${p}_artefacts/Release/VST3/$p.vst3" "dist/$p.vst3"
           done
           ls -R dist | head -50
@@ -84,7 +84,7 @@ jobs:
       - name: pluginval (strictness 10)
         shell: bash
         run: |
-          for p in Strata VoxNote Intone Ducker; do
+          for p in Strata VoxNote Intone Ducker Frisson; do
             echo "== $p"
             "pluginval/${{ matrix.pluginval_bin }}" --strictness-level 10 --skip-gui-tests \
               --validate-in-process --timeout-ms 300000 --validate "dist/$p.vst3"

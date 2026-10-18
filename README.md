@@ -1,6 +1,6 @@
 # Curtis Tech Solutions — Audio Plugins
 
-Four VST3 plugins built on a shared, framework-independent DSP core, with JUCE 9 doing
+Five VST3 plugins built on a shared, framework-independent DSP core, with JUCE 9 doing
 the plugin plumbing and UI. Windows and macOS binaries come out of GitHub Actions;
 Linux builds too and is used for validation.
 
@@ -10,6 +10,7 @@ Linux builds too and is used for validation.
 | **VoxNote** | Hum or sing into the mic, get MIDI out: YIN pitch tracking, onset / release gating, retrigger vs. pitch-bend logic, scale snapping, velocity from level, built-in monitor tone | Audio FX with MIDI output |
 | **Intone** | Pitch correction to a key/scale (incl. 12-note custom scale) via formant-preserving PSOLA, retune speed + amount, plus a vocal chain: low cut, de-esser, compressor, body / presence / air EQ | Audio FX |
 | **Ducker** | Sidechain compressor with lookahead and SC low-cut, internal-detector mode, and a tempo-synced *ghost* ducking mode that needs no sidechain routing at all | Audio FX with sidechain input |
+| **Frisson** | Nine-knob sound enhancer where each knob is named for the listener response it targets — WEIGHT, WARMTH, RUSH, FOCUS, SHINE, SPACE, GROOVE, CHILLS, LIFE — plus a DOSE master and a loudness-matched MATCH bypass. Each knob is a separately tested module (see `docs/prd/`) | Audio FX (bus or track) |
 
 The names are working titles; rename in each `plugins/<Name>/CMakeLists.txt` (`PRODUCT_NAME`)
 and the editor title. Keep `PLUGIN_CODE` stable once a plugin has been used in sessions,
@@ -25,6 +26,8 @@ core/            Header-only DSP (namespace ap), no JUCE dependency, unit-tested
 common/          JUCE-side shared code: LookAndFeel, generic parameter panels,
                  meters/readouts, editor base, parameter-layout helpers
 plugins/         One folder per plugin: PluginProcessor + PluginEditor + CMakeLists
+plugins/Frisson/modules/   Frisson's nine knob modules (JUCE-free, one PRD each in docs/prd/)
+docs/prd/        Product requirement documents for every plugin and every Frisson knob
 tests/           ap_tests (core unit tests) and host/ (loads each built .vst3 through
                  JUCE's headless host and checks behaviour end to end)
 cmake/           JUCE fetch (pinned tag) and the ap_add_plugin() helper
@@ -86,7 +89,9 @@ Proper Developer-ID signing + notarization is a TODO before sharing with other p
 ## Testing
 
 - `ap_tests` — core DSP unit tests (pitch detection accuracy, PSOLA pitch/level, note
-  state machine, scales, filters, gain computer, tempo envelope).
+  state machine, scales, filters, gain computer, tempo envelope, crossovers, saturation,
+  loudness meter, 1/f drift).
+- `frisson_tests` — one test suite per Frisson knob, each asserting the numbers in its PRD.
 - `host_<Plugin>` — `VST3HostTest` loads the built `.vst3` through JUCE's headless VST3
   host and checks real behaviour: the synth plays C4 in tune and decays to silence,
   VoxNote turns a 224 Hz tone into A3 with pitch bend and a matching note-off, Intone
@@ -108,6 +113,12 @@ Logic Pro's AU effects can't emit MIDI; this is VST3-only by design.
 playing back. For live monitoring use the host's low-latency mode or a direct-monitoring
 path. *Retune Speed* 0 ms = hard tune; 20–60 ms is natural; *Amount* blends correction.
 *Scale = Custom* uses the 12 note buttons.
+
+**Frisson** — turn knobs up for the ingredients you want; everything is off at 0. DOSE scales
+the whole recipe and doubles as the blend. Hit **MATCH** to hear the untouched signal raised to
+the processed loudness — if the processed version still sounds better at equal level, the
+recipe is doing something real. The header shows how many dB the processing added. CHILLS and
+LIFE are modulators: they only move ingredients that are already turned up.
 
 **Ducker** — in *External sidechain* mode route the kick into the plugin's sidechain input
 (the header shows a green dot once the host connects it). *Ghost* mode needs no routing:

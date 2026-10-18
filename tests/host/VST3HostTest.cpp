@@ -350,13 +350,115 @@ void testDucker (Host& host)
     checkNear (host.plugin->getLatencySamples(), 240, 2, "5 ms lookahead reports 240 samples of latency");
 }
 
+
+double bandRmsOf (const std::vector<float>& v, double lowHz, double highHz, size_t from)
+{
+    // Goertzel bank, same approach as the module tests.
+    double acc = 0.0;
+    const int bins = 24;
+    for (int b = 0; b < bins; ++b)
+    {
+        const double hz = lowHz * std::pow (highHz / lowHz, (b + 0.5) / bins);
+        const double w = ap::kTwoPiD * hz / kSampleRate;
+        const double c = 2.0 * std::cos (w);
+        double s0 = 0.0, s1 = 0.0, s2 = 0.0;
+        for (size_t i = from; i < v.size(); ++i) { s0 = v[i] + c * s1 - s2; s2 = s1; s1 = s0; }
+        const double power = std::max (0.0, s1 * s1 + s2 * s2 - c * s1 * s2);
+        const double amp = std::sqrt (power) / (double) (v.size() - from) * 2.0;
+        acc += amp * amp * 0.5;
+    }
+    return std::sqrt (acc);
+}
+
+float pinkSample (juce::int64 n, int channel)
+{
+    // Deterministic pink-ish noise per channel: sum of white octaves (cheap Voss style).
+    static juce::Random rngL (1), rngR (2);
+    juce::Random& r = channel == 0 ? rngL : rngR;
+    (void) n;
+    float s = 0.0f;
+    for (int o = 0; o < 6; ++o) s += r.nextFloat() * 2.0f - 1.0f;
+    return s * 0.08f;
+}
+
+void testFrisson (Host& host)
+{
+    std::printf ("Frisson checks\n");
+    const int latency = host.plugin->getLatencySamples();
+    check (latency >= 0 && latency <= (int) (kSampleRate * 0.005), "latency within 5 ms");
+
+    // Pink test material, stored so we can compare against the delayed input.
+    std::vector<float> pinkL, pinkR;
+    for (int i = 0; i < kBlock * 400; ++i) { pinkL.push_back (pinkSample (i, 0)); pinkR.push_back (pinkSample (i, 1)); }
+    auto feed = [&] (int ch, int i, juce::int64 n) { return ch == 0 ? pinkL[(size_t) (n % (juce::int64) pinkL.size())] : pinkR[(size_t) (n % (juce::int64) pinkR.size())]; };
+
+    // Dose 0 -> bit-exact (latency only) bypass.
+    host.setParam ("Dose", "0 %");
+    host.setParam ("Match", "Off");
+    host.playHead.samples = 0;
+    std::vector<float> out;
+    for (int b = 0; b < 40; ++b) host.processBlock (feed, &out);
+    float maxd = 0.0f;
+    for (size_t i = (size_t) latency + 2048; i < out.size(); ++i)
+        maxd = std::max (maxd, std::fabs (out[i] - pinkL[i - (size_t) latency]));
+    check (maxd < 1.0e-5f, "Dose 0 is a latency-only bypass");
+
+    // Defaults at full dose: finite, sensible level.
+    host.setParam ("Dose", "100 %");
+    for (const char* k : { "Weight", "Warmth", "Rush", "Focus", "Shine", "Space", "Groove", "Chills", "Life" })
+        host.setParam (k, "40 %");
+    out.clear();
+    for (int b = 0; b < 400; ++b) host.processBlock (feed, &out);
+    check (host.outputIsFinite(), "full recipe is finite");
+    const double dryLevel = rmsOf (pinkL, 20000, pinkL.size());
+    const double wetLevel = rmsOf (out, 20000, out.size());
+    check (wetLevel > dryLevel * 0.5 && wetLevel < dryLevel * 2.0, "full recipe stays within 6 dB of the input level");
+
+    // WEIGHT alone raises the low end.
+    for (const char* k : { "Weight", "Warmth", "Rush", "Focus", "Shine", "Space", "Groove", "Chills", "Life" })
+        host.setParam (k, "0 %");
+    host.setParam ("Weight", "100 %");
+    out.clear();
+    for (int b = 0; b < 120; ++b) host.processBlock (feed, &out);
+    const double lowIn = bandRmsOf (pinkL, 40.0, 90.0, 10000);
+    const double lowOut = bandRmsOf (out, 40.0, 90.0, 10000);
+    check (lowOut > lowIn * 1.15, "WEIGHT raises 40-90 Hz");
+
+    // SHINE alone raises the top.
+    host.setParam ("Weight", "0 %");
+    host.setParam ("Shine", "100 %");
+    out.clear();
+    for (int b = 0; b < 120; ++b) host.processBlock (feed, &out);
+    const double hiIn = bandRmsOf (pinkL, 10000.0, 16000.0, 10000);
+    const double hiOut = bandRmsOf (out, 10000.0, 16000.0, 10000);
+    check (hiOut > hiIn * 1.15, "SHINE raises 10-16 kHz");
+
+    // MATCH: hearing the dry signal, level-matched to the processed one.
+    host.setParam ("Shine", "0 %");
+    host.setParam ("Rush", "100 %");
+    host.setParam ("Rush Auto Gain", "Off");
+    host.setParam ("Match", "On");
+    out.clear();
+    for (int b = 0; b < 500; ++b) host.processBlock (feed, &out);   // > 5 s so both meters settle
+    // Correlation with the delayed dry input must be ~1 (it is the dry signal, just gained).
+    double sab = 0.0, saa = 0.0, sbb = 0.0;
+    for (size_t i = out.size() - 48000; i < out.size(); ++i)
+    {
+        const double a = out[i], b = pinkL[(i - (size_t) latency) % pinkL.size()];
+        sab += a * b; saa += a * a; sbb += b * b;
+    }
+    check (sab / std::sqrt (saa * sbb) > 0.98, "MATCH outputs the dry signal");
+    check (std::fabs (rmsOf (out, out.size() - 48000, out.size()) / rmsOf (pinkL, 0, 48000)) > 0.5, "MATCH gain is finite and sane");
+    host.setParam ("Match", "Off");
+}
+
 } // namespace
 
 int main (int argc, char** argv)
 {
     if (argc < 3)
     {
-        std::printf ("usage: VST3HostTest <plugin.vst3> <Strata|VoxNote|Intone|Ducker>\n");
+        std::printf ("usage: VST3HostTest <plugin.vst3> <Strata|VoxNote|Intone|Ducker|Frisson>\n");
         return 2;
     }
 
@@ -378,6 +480,7 @@ int main (int argc, char** argv)
     else if (which == "VoxNote") testVoxNote (host);
     else if (which == "Intone")  testIntone (host);
     else if (which == "Ducker")  testDucker (host);
+    else if (which == "Frisson") testFrisson (host);
     else { std::printf ("unknown plugin tag %s\n", which.toRawUTF8()); return 2; }
 
     host.plugin->releaseResources();
