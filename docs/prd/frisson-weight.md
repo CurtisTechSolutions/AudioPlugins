@@ -25,7 +25,8 @@ centred.
   band they came from; level tracks the sub level so quiet passages do not
   get a constant hum.
 - R4. Mono below `monoBelowHz` (default 120 Hz, settable 60–300): the side
-  channel is high-passed with an LR4 at that frequency.
+  channel is high-passed with an LR4 at that frequency. Reaches full depth by
+  amount 0.25 so bass is centred at ordinary knob settings.
 - R5. No added latency. No DC on the output (harmonic generator is DC-blocked).
 - R6. Level independent (R3's level tracking uses a ratio, not a threshold).
 - R7. `activity()` = normalised level of the generated harmonics (0..1).
@@ -35,12 +36,14 @@ centred.
 
 1. M/S encode. `S_high = LR4_HP(S, monoBelowHz)`; `S = S_high` (bass side discarded).
    Decode back to L/R.
-2. Per channel: `shelf = LowShelf(70 Hz, Q 0.707, gain = 4 dB × amount)`.
+2. Per channel: `shelf = LowShelf(gain = 4 dB × amount)` whose rise *starts* at 70 Hz (biquad centre
+   placed so 60 Hz gets ≈ +3 dB at full amount, 150 Hz ≤ +0.3 dB).
 3. Harmonic generator on the mono sum M:
    `b = BPF(M, 40–90 Hz)` (two cascaded 2nd-order band-passes or LR4 pair);
    `env = EnvelopeFollower(peak, 5 ms / 80 ms)(b)`;
    `n = b / max(env, 1e-4)` (normalised ±1-ish);
-   `h = 0.7·n·|n| + 0.3·n³` (2nd + 3rd order terms), DC-blocked;
+   `h = 0.7·T2(n) + 0.3·T3(n)` with Chebyshev `T2(n) = 2n² − 1`, `T3(n) = 4n³ − 3n`
+   (pure 2nd and 3rd harmonics of a unit sine; note `n·|n|` is odd and makes *no* 2nd harmonic), DC-blocked;
    `h = BPF(h, 80–250 Hz)` (LR4 pair);
    `out += h × env × amount × 10^(−12/20)` summed equally into L and R.
 4. Output trim: none (shelf gain is the intended level change).
