@@ -91,6 +91,9 @@ jobs:
           pattern: AudioPlugins-*
           merge-multiple: true
           path: assets
+          # The artifacts are already zips (uploaded with archive: false); without
+          # this, download-artifact would extract them into one merged folder.
+          skip-decompress: true
       - name: Checksums
         working-directory: assets
         run: |

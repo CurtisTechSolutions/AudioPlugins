@@ -48,3 +48,36 @@ jobs:
       lto: false
       label: ${{ needs.label.outputs.label }}
       retention-days: 14
+
+  package:
+    name: Package check
+    # Rehearses the release "publish" job on every CI run: same download pattern,
+    # contents check, checksums. Only `gh release upload` is release-only.
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: AudioPlugins-*
+          merge-multiple: true
+          path: assets
+          # The artifacts are already zips (uploaded with archive: false); without
+          # this, download-artifact would extract them into one merged folder.
+          skip-decompress: true
+      - name: Verify zip contents
+        working-directory: assets
+        run: |
+          ls -la
+          test "$(ls AudioPlugins-*.zip | wc -l)" -eq 3 || { echo "expected 3 platform zips"; exit 1; }
+          for z in AudioPlugins-*.zip; do
+            # Normalise separators (7-Zip on Windows) and any ./ prefix before matching.
+            listing=$(unzip -Z1 "$z" | sed -e 's#\\#/#g' -e 's#^\./##')
+            for f in Strata VoxNote Intone Ducker Frisson; do
+              grep -q "^$f\.vst3/" <<< "$listing" || { echo "$z is missing $f.vst3"; exit 1; }
+            done
+            grep -qx "INSTALL.txt" <<< "$listing" || { echo "$z is missing INSTALL.txt"; exit 1; }
+            echo "ok  $z ($(wc -l <<< "$listing") entries)"
+          done
+      - name: Checksums
+        working-directory: assets
+        run: sha256sum AudioPlugins-*.zip | tee SHA256SUMS.txt
