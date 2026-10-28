@@ -147,15 +147,17 @@ AP_TEST (osc_band_limited_saw_midi108)
     std::printf ("    saw MIDI 108 @ 48k aliasing: %.1f dB\n", d48);
     CHECK (d48 < -60.0);
 
-    // Mid keyboard (MIDI 36..84) plays the critically sampled 2048..256-sample mips, where linear
-    // interpolation images of the top harmonics fold back: a measured floor of about -39..-53 dB for a
-    // raw saw (documented limit of the contract's mip layout; see the W-A report). Guard against regressions.
-    for (int bin : { 49, 97, 194, 389, 778 })
+    // The whole keyboard: MIDI 24..120 every 6 semitones at 44.1 kHz (f0 rounded to the nearest bin).
+    double worst = -200.0;
+    for (int midi = 24; midi <= 120; midi += 6)
     {
+        const int bin = (int) std::lround (ap::midiToHz ((float) midi) * 32768.0 / 44100.0);
         const double d = sawAliasDb (44100.0, bin);
-        std::printf ("    saw bin %d @ 44.1k aliasing: %.1f dB (mid keyboard)\n", bin, d);
-        CHECK (d < -36.0);
+        std::printf ("    saw MIDI %3d @ 44.1k aliasing: %.1f dB\n", midi, d);
+        CHECK (d < -60.0);
+        worst = std::max (worst, d);
     }
+    std::printf ("    worst over MIDI 24..120: %.1f dB\n", worst);
 }
 
 AP_TEST (osc_band_limit_keeps_brightness)

@@ -11,8 +11,9 @@
 // current targets and resets the phases.
 //
 // Reading: frame morph = linear interpolation between frames floor (f) and
-// ceil (f), f = position x (numFrames - 1); linear interpolation in phase
-// (using the wrap guard sample); the mip level follows each copy's own phase
+// ceil (f), f = position x (numFrames - 1); 4-point 3rd-order Lagrange
+// (cubic) interpolation in phase, whose images fall much faster than linear
+// interpolation's on the oversampled mips; the mip level follows each copy's own phase
 // increment and crossfades into the next level over the upper half of each
 // octave, so both levels it mixes are alias-free and switches are inaudible.
 //

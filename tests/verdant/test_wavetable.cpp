@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
 using namespace verdant;
@@ -58,9 +59,10 @@ AP_TEST (wavetable_from_frames_shape)
     CHECK_EQ (t->numFrames(), kMaxFrames);
     CHECK (t->name() == "Many");
 
-    // Harmonic limits halve per level down to the fundamental: 10 levels; storage halves down to the 128-sample floor.
+    // Harmonic limits halve per level down to the fundamental: 10 levels. Level 0 is the plain 2048-sample
+    // frame; the others are stored oversampled (4x, capped at 2048, floor 256).
     CHECK_EQ (t->numMipLevels(), 10);
-    const int sizes[10]  = { 2048, 1024, 512, 256, 128, 128, 128, 128, 128, 128 };
+    const int sizes[10]  = { 2048, 2048, 2048, 1024, 512, 256, 256, 256, 256, 256 };
     const int limits[10] = { 1023, 511, 255, 127, 63, 31, 15, 7, 3, 1 };
     for (int l = 0; l < 10; ++l)
     {
@@ -184,9 +186,10 @@ AP_TEST (wavetable_memory_bound)
     const auto t = Wavetable::fromFrames (frames.data(), kMaxFrames, "Big");
     const double bytes = (double) t->memoryBytes();
     const double raw = (double) kMaxFrames * kFrameSize * sizeof (float);
-    CHECK (bytes <= 5.0e6);              // <= 5 MB at kMaxFrames
-    CHECK (bytes >= 2.0 * raw);          // reports the real footprint (all levels) ...
-    CHECK (bytes <= 2.3 * raw);          // ... of about 2.2 x the raw frames
+    std::printf ("    256-frame table: %.2f MB (%.2f x raw)\n", bytes / 1.0e6, bytes / raw);
+    CHECK (bytes <= 10.0e6);             // <= 10 MB at kMaxFrames
+    CHECK (bytes >= 4.2 * raw);          // reports the real footprint (all levels) ...
+    CHECK (bytes <= 4.5 * raw);          // ... of about 4.4 x the raw frames
 }
 
 AP_TEST (wavetable_dc_removed_and_normalised)

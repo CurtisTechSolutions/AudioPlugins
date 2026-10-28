@@ -17,7 +17,11 @@ namespace
 int Wavetable::mipSize (int level) noexcept
 {
     level = std::clamp (level, 0, kMaxMipLevels - 1);
-    return std::max (kMinMipSize, kFrameSize >> level);
+    if (level == 0)
+        return kFrameSize;   // frame() contract: level 0 is the plain kFrameSize frame
+    // Oversampled storage (4x the critical size, capped at kFrameSize, floor kMinMipSize) so the
+    // interpolation images of the kept harmonics stay far from them: 2048, 2048, 2048, 1024, 512, 256 ...
+    return std::max (kMinMipSize, std::min (kFrameSize, 4 * (kFrameSize >> level)));
 }
 
 int Wavetable::harmonicLimit (int level) noexcept
@@ -131,7 +135,7 @@ int Wavetable::mipLevelFor (float phaseIncrement) const noexcept
 {
     const float inc = std::fabs (phaseIncrement);
     for (int l = 0; l < levels; ++l)
-        if ((float) harmonicLimit (l) * inc < 0.5f)
+        if ((float) harmonicLimit (l) * inc < kMipTopHarmonic)
             return l;
     return levels - 1;
 }

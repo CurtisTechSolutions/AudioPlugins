@@ -10,11 +10,12 @@ namespace verdant
 
 namespace
 {
-    // Continuous mip level: y = log2 (4 x 1023 x inc). floor (y) is the first level whose kept
-    // harmonics all stay below Nyquist (harmonicLimit (k) x inc < 0.5); over the upper half of
-    // each octave (frac (y) 0.5 .. 1) the read crossfades into the next (darker) level, which is
-    // also alias-free, and reaches it exactly where floor (y) steps up, so the switch is seamless.
-    constexpr float kLevelBias      = 11.998590429745328f;   // log2 (4 x 1023)
+    // Continuous mip level: y = log2 (2 x 1023 x inc / kMipTopHarmonic). floor (y) is the level
+    // mipLevelFor() picks (harmonicLimit (k) x inc < kMipTopHarmonic, the headroom that keeps the
+    // linear-interpolation images from folding back audibly); over the upper half of each octave
+    // (frac (y) 0.5 .. 1) the read crossfades into the next (darker) level and reaches it exactly
+    // where floor (y) steps up, so the switch is seamless.
+    const float kLevelBias          = (float) std::log2 (2.0 * 1023.0 / (double) kMipTopHarmonic);
     constexpr float kMinLevel       = -1.0f;                  // clamp for very low / zero increments
     constexpr float kMaxLevel       = (float) (kMaxMipLevels - 1);
     constexpr double kMaxIncrement  = 0.4999;                 // just below Nyquist
@@ -95,16 +96,24 @@ namespace
         return std::clamp ((int) fpos, 0, tv.lastFrame);
     }
 
-    /** Linear interpolation in phase (p in [0, 1]) on frames a and b, then between them by ft. */
+    /** Frames a and b morphed by ft, then 4-point 3rd-order Lagrange interpolation in phase (p in [0, 1]).
+        Cubic rather than linear: linear interpolation leaves images of harmonic h at mipSize +- h with
+        amplitude ~ (h / mipSize)^2, which fold back to about -45 dB for a saw on the 2x mips; the cubic's
+        images fall as ~ (h / mipSize)^4. Taps wrap with the power-of-two mask (no extra guard samples). */
     inline float readFrames (const float* a, const float* b, float size, int mask, float ft, float p) noexcept
     {
         const float idx = p * size;
         int i = (int) idx;
         const float t = idx - (float) i;
-        i &= mask;   // p == 1 reads sample 0 (same value as the guard)
-        const float va = a[i] + t * (a[i + 1] - a[i]);
-        const float vb = b[i] + t * (b[i + 1] - b[i]);
-        return va + ft * (vb - va);
+        const int im1 = (i - 1) & mask, i0 = i & mask, i1 = (i + 1) & mask, i2 = (i + 2) & mask;   // p == 1 reads sample 0
+        const float ym1 = a[im1] + ft * (b[im1] - a[im1]);
+        const float y0  = a[i0]  + ft * (b[i0]  - a[i0]);
+        const float y1  = a[i1]  + ft * (b[i1]  - a[i1]);
+        const float y2  = a[i2]  + ft * (b[i2]  - a[i2]);
+        const float c1 = y1 - (1.0f / 3.0f) * ym1 - 0.5f * y0 - (1.0f / 6.0f) * y2;
+        const float c2 = 0.5f * (ym1 + y1) - y0;
+        const float c3 = (1.0f / 6.0f) * (y2 - ym1) + 0.5f * (y0 - y1);
+        return ((c3 * t + c2) * t + c1) * t + y0;
     }
 
     /** Reads one copy's table position: frames f0 / f1 of mip level lo, crossfaded into level lo + 1 by w. */
