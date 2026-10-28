@@ -1,7 +1,12 @@
 #include "PluginEditor.h"
 
 #include "PresetManager.h"
+#include "ui/BrowsePage.h"
 #include "ui/ModSourceChip.h"
+#include "ui/OscPage.h"
+#include "ui/PaintCanvas.h"
+#include "ui/SampleDropZone.h"
+#include "ui/Scope.h"
 #include "ui/Widgets.h"
 
 #include <ap_ui/Meters.h>
@@ -29,9 +34,15 @@ const char* Editor::pageId (int index)   { return index >= 0 && index < numPages
 
 //==============================================================================
 /** The scaled 1120 x 720 surface: page background plus the soft shadow under the header. */
-class Editor::Content : public juce::Component
+class Editor::Content : public juce::Component, public juce::FileDragAndDropTarget
 {
 public:
+    explicit Content (Editor& e) : editor (e) {}
+
+    // Owned here (W-J): the output scope overlay and the spectral-paint panel (parented to the OSC page).
+    std::unique_ptr<ui::Scope> scope;
+    std::unique_ptr<ui::PaintCanvasPanel> paintPanel;
+
     void paint (juce::Graphics& g) override
     {
         g.fillAll (col (palette::background));
@@ -43,7 +54,46 @@ public:
         g.setGradientFill (juce::ColourGradient (juce::Colours::black.withAlpha (0.35f), 0.0f, y,
                                                  juce::Colours::black.withAlpha (0.0f), 0.0f, y + 10.0f, false));
         g.fillRect (juce::Rectangle<float> (0.0f, y, (float) getWidth(), 10.0f));
+
+        if (dropping)
+        {
+            // An audio file over the window: it goes to BROWSE's sample matcher.
+            const auto r = juce::Rectangle<float> (0.0f, (float) headerHeight, (float) getWidth(), (float) pageHeight).reduced (10.0f);
+            g.setColour (col (palette::background).withAlpha (0.6f));
+            g.fillRoundedRectangle (r, Theme::cardRadius);
+            g.setColour (col (palette::accent));
+            g.drawRoundedRectangle (r, Theme::cardRadius, 2.0f);
+            g.setFont (font (16.0f, true));
+            g.drawText ("Drop to match this sample", r, juce::Justification::centred, false);
+        }
     }
+
+    // Audio files dropped anywhere (outside the OSC page's own WAV import) -> BROWSE sample match.
+    bool isInterestedInFileDrag (const juce::StringArray& files) override
+    {
+        for (const auto& f : files)
+            if (ui::SampleDropZone::isAudioFile (f)) return true;
+        return false;
+    }
+    void fileDragEnter (const juce::StringArray&, int, int) override { dropping = true; repaint(); }
+    void fileDragExit (const juce::StringArray&) override            { dropping = false; repaint(); }
+    void filesDropped (const juce::StringArray& files, int, int) override
+    {
+        dropping = false;
+        repaint();
+        for (const auto& f : files)
+            if (ui::SampleDropZone::isAudioFile (f))
+            {
+                editor.showPage (5);
+                if (auto* browse = dynamic_cast<ui::BrowsePage*> (editor.page (5)))
+                    browse->analyseSample (juce::File (f));
+                return;
+            }
+    }
+
+private:
+    Editor& editor;
+    bool dropping = false;
 };
 
 //==============================================================================
@@ -173,6 +223,16 @@ public:
         addAndMakeVisible (save);
         addAndMakeVisible (init);
 
+        scopeButton.setClickingTogglesState (true);
+        scopeButton.setFrameless (true);
+        scopeButton.setComponentID ("verdant.scopeToggle");
+        scopeButton.onClick = [this]
+        {
+            if (auto* s = editor.content->scope.get())
+                s->setVisible (scopeButton.getToggleState());
+        };
+        addAndMakeVisible (scopeButton);
+
         addAndMakeVisible (meter);
         refresh();
     }
@@ -228,12 +288,13 @@ public:
 
         // Preset pill + Save / Init, centred in the space between the logo and the tabs.
         auto mid = r.withTrimmedLeft (200).withTrimmedRight (Theme::spaceM);
-        const int pillW = 320, btnW = 56, total = pillW + 6 + btnW * 2;
+        const int pillW = 300, btnW = 56, total = pillW + 6 + btnW * 3;
         auto block = mid.withSizeKeepingCentre (juce::jmin (total, mid.getWidth()), mid.getHeight());
-        pill.setBounds (centred (block.removeFromLeft (block.getWidth() - (6 + btnW * 2))));
+        pill.setBounds (centred (block.removeFromLeft (block.getWidth() - (6 + btnW * 3))));
         block.removeFromLeft (6);
         save.setBounds (centred (block.removeFromLeft (btnW)).reduced (0, 2));
         init.setBounds (centred (block.removeFromLeft (btnW)).reduced (0, 2));
+        scopeButton.setBounds (centred (block.removeFromLeft (btnW)).reduced (0, 2));
     }
 
     juce::Component& saveButton() { return save; }
@@ -245,6 +306,7 @@ private:
     PresetPill pill;
     IconButton save { IconButton::Icon::Save, "Save the current sound as a user preset", "Save" };
     IconButton init { IconButton::Icon::None, "Start from the init patch", "Init" };
+    IconButton scopeButton { IconButton::Icon::None, "Show the output scope (click the scope for the spectrum)", "Scope" };
     SegmentedControl tabs;
     ap::ui::LevelMeter meter;
 };
@@ -364,6 +426,11 @@ private:
     public:
         std::function<void (int, bool)> onNote;
         static constexpr int lowNote = 48, numWhite = 14;
+
+        ~Keyboard() override
+        {
+            if (held >= 0 && onNote) onNote (held, false);   // never leave a held audition sounding
+        }
 
         void paint (juce::Graphics& g) override
         {
@@ -552,7 +619,7 @@ Editor::Editor (Processor& p)
 {
     setLookAndFeel (&lookAndFeel);
 
-    content = std::make_unique<Content>();
+    content = std::make_unique<Content> (*this);
     content->setBounds (0, 0, baseWidth, baseHeight);
     addAndMakeVisible (*content);
 
@@ -573,6 +640,21 @@ Editor::Editor (Processor& p)
 
     savePanel = std::make_unique<SavePanel> (p);
     content->addChildComponent (*savePanel);
+
+    // W-J wiring: the OSC page's Paint button opens the paint panel over that page; BROWSE's "Save as..."
+    // opens the save panel; the scope floats over the bottom-right corner of the page area.
+    content->paintPanel = std::make_unique<PaintCanvasPanel> (p);
+    if (auto* osc = dynamic_cast<OscPage*> (pages[0].get()))
+    {
+        osc->addChildComponent (*content->paintPanel);
+        osc->onPaintRequested = [panel = content->paintPanel.get()] (int o) { panel->open (o); };
+    }
+    if (auto* browse = dynamic_cast<BrowsePage*> (pages[5].get()))
+        browse->onSaveAs = [this] { toggleSavePanel(); };
+    content->scope = std::make_unique<Scope> (p);
+    content->scope->setBounds (baseWidth - Theme::pageMargin - 6 - Scope::width, baseHeight - stripHeight - Theme::pageMargin - 6 - Scope::height,
+                               Scope::width, Scope::height);
+    content->addChildComponent (*content->scope);
 
     showPage (0);
 
@@ -626,6 +708,8 @@ void Editor::timerCallback()
     if (pageIndex >= 0)
         pages[(size_t) pageIndex]->tick();
     strip->tick();
+    if (content->scope != nullptr && content->scope->isVisible())
+        content->scope->tick();
 }
 
 void Editor::changeListenerCallback (juce::ChangeBroadcaster*)

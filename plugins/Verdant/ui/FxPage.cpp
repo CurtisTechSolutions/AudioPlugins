@@ -43,7 +43,7 @@ namespace
     void gridLine (juce::Graphics& g, float x0, float y0, float x1, float y1, bool major = false)
     {
         g.setColour (col (palette::grid).brighter (major ? 0.15f : 0.0f));
-        if (x0 == x1) g.fillRect (juce::Rectangle<float> (std::round (x0), y0, 1.0f, y1 - y0));
+        if (std::abs (x0 - x1) < 0.01f) g.fillRect (juce::Rectangle<float> (std::round (x0), y0, 1.0f, y1 - y0));
         else          g.fillRect (juce::Rectangle<float> (x0, std::round (y0), x1 - x0, 1.0f));
     }
 
@@ -145,7 +145,7 @@ namespace
             if (type != Eq) return;
             dragBand = eqHandleAt (e.position);
             if (dragBand < 0) return;
-            for (auto p : eqParams (dragBand))
+            for (auto p : { eqParams (dragBand).first, eqParams (dragBand).second })
                 if (auto* q = param (p)) q->beginChangeGesture();
         }
 
@@ -164,7 +164,7 @@ namespace
         void mouseUp (const juce::MouseEvent&) override
         {
             if (type == Eq && dragBand >= 0)
-                for (auto p : eqParams (dragBand))
+                for (auto p : { eqParams (dragBand).first, eqParams (dragBand).second })
                     if (auto* q = param (p)) q->endChangeGesture();
             dragBand = -1;
             repaint();
@@ -478,10 +478,12 @@ namespace
                 const float t = timeMs * (float) k;
                 const float x = plot.getX() + 18.0f + (plot.getWidth() - 24.0f) * t / span;
                 gridLine (g, x, plot.getY() + 4.0f, x, plot.getBottom() - 4.0f, false);
-                float amp = k == 0 ? 1.0f : mix * std::pow (fb, (float) (k - 1)) * std::pow (tone, (float) (k - 1));
-                if (amp < 0.01f) continue;
+                // Repeats drawn relative to the first echo (scaled a little by Mix) so the decay reads clearly.
+                const float decay = k == 0 ? 1.0f : std::pow (fb, (float) (k - 1)) * std::pow (tone, (float) (k - 1));
+                const float amp = k == 0 ? 1.0f : decay * (0.45f + 0.5f * mix);
+                if (amp < 0.02f) continue;
                 const float h = (plot.getHeight() * 0.5f - 6.0f) * juce::jmin (1.0f, amp);
-                const auto c = k == 0 ? col (palette::text).withAlpha (0.8f) : accent.withAlpha (0.35f + 0.65f * juce::jmin (1.0f, amp / juce::jmax (0.05f, mix)));
+                const auto c = k == 0 ? col (palette::text).withAlpha (0.8f) : accent.withAlpha (0.4f + 0.6f * decay);
                 auto bar = [&] (bool up, float frac)
                 {
                     const float hh = h * frac;
@@ -532,7 +534,7 @@ namespace
                 {
                     const float ms = pre + (spanMs - pre) * (float) i / (float) bars;
                     const float tSec = (ms - pre) * 0.001f;
-                    const float env = std::pow (10.0f, -3.0f * tSec / juce::jmax (0.05f, rtL)) * (0.35f + 0.65f * mix);
+                    const float env = std::pow (10.0f, -3.0f * tSec / juce::jmax (0.05f, rtL)) * (0.7f + 0.3f * mix);
                     const float density = juce::jlimit (0.2f, 1.0f, 0.3f + size + tSec * 4.0f);
                     const float jitterL = 0.55f + 0.45f * rng.nextFloat(), jitterR = 0.55f + 0.45f * rng.nextFloat();
                     if (rng.nextFloat() > density) continue;
@@ -548,7 +550,7 @@ namespace
             for (int k = 1; k <= 6; ++k)
             {
                 const float ms = pre + (4.0f + 30.0f * size) * (float) k * (0.7f + 0.1f * (float) (k % 3));
-                const float h = half * (0.7f - 0.08f * (float) k) * (0.35f + 0.65f * mix);
+                const float h = half * (0.75f - 0.08f * (float) k) * (0.7f + 0.3f * mix);
                 g.setColour (accent.withAlpha (0.85f));
                 g.fillRect (juce::Rectangle<float> (xAt (ms), mid - h, 1.5f, 2.0f * h));
             }
@@ -712,9 +714,9 @@ namespace
             const float top = env.getY() + 14.0f, depthPx = env.getHeight() - 20.0f;
             gridLine (g, env.getX(), top, env.getRight(), top, true);
             // the burst
-            g.setColour (col (palette::textDim).withAlpha (0.25f));
-            g.fillRect (juce::Rectangle<float> (xT (10.0f), top - 8.0f, xT (10.0f + burst) - xT (10.0f), 4.0f));
-            gridLabel (g, "INPUT BURST", { xT (10.0f), env.getY() - 2.0f, 100.0f, 11.0f }, juce::Justification::centredLeft);
+            g.setColour (col (palette::textDim).withAlpha (0.35f));
+            g.fillRoundedRectangle (juce::Rectangle<float> (xT (10.0f), top - 6.0f, xT (10.0f + burst) - xT (10.0f), 3.0f), 1.5f);
+            gridLabel (g, "INPUT BURST", { xT (10.0f + burst) + 6.0f, top - 10.0f, 100.0f, 11.0f }, juce::Justification::centredLeft);
             juce::Path gr;
             float level = 0.0f;
             const int n = 240;
@@ -780,7 +782,7 @@ namespace
             const int strings = (int) std::lround (v (P::SympStrings)), memory = (int) std::lround (v (P::SympMemory));
             const float bright = v (P::SympBright), snap = v (P::SympSnap);
             const bool changed = strings != shownStrings || memory != shownMemory || std::abs (bright - shownBright) > 0.5f
-                                 || std::abs (amount - shownAmount) > 0.005f || snap != shownSnap;
+                                 || std::abs (amount - shownAmount) > 0.005f || std::abs (snap - shownSnap) > 0.5f;
             if (energy > 0.0f || changed || wasMoving)
             {
                 wasMoving = energy > 0.0f;
@@ -847,11 +849,19 @@ namespace
                 g.setColour (m < memory ? accent.withAlpha (0.25f + 0.75f * juce::jmax (amount, 0.3f)) : col (palette::knobTrack));
                 g.fillRoundedRectangle (r, 3.0f);
             }
-            g.setColour (amount > 0.0f ? col (palette::textDim) : col (palette::warning).withAlpha (0.85f));
+            g.setColour (col (palette::textDim));
             g.setFont (font (Theme::fontSmall));
-            g.drawText (amount > 0.0f ? juce::String (strings) + (strings == 1 ? " string" : " strings")
-                                      : juce::String ("Off - raise Amount"),
-                        footer, juce::Justification::centredRight, false);
+            g.drawText (juce::String (memory) + " / 8", footer, juce::Justification::centredRight, false);
+            if (amount <= 0.0f)
+            {
+                const auto badge = juce::Rectangle<float> (132.0f, 20.0f).withCentre (a.getCentre());
+                g.setColour (col (palette::background).withAlpha (0.85f));
+                g.fillRoundedRectangle (badge, 10.0f);
+                g.setColour (col (palette::warning).withAlpha (0.7f));
+                g.drawRoundedRectangle (badge.reduced (0.5f), 10.0f, 1.0f);
+                g.setColour (col (palette::warning));
+                g.drawText ("Off - raise Amount", badge, juce::Justification::centred, false);
+            }
         }
 
     private:
@@ -1037,14 +1047,17 @@ struct FxPage::Impl
     {
         auto c = fxCard.contentArea();
         const int primaryH = ModKnob::heightFor (Theme::knobPrimary), secondaryH = ModKnob::heightFor (Theme::knobSecondary);
-        auto controlsArea = c.removeFromBottom (primaryH + 16 + secondaryH);
+        fxCard.clearCaptions();
+        if (! juce::isPositiveAndBelow (shownType, (int) NumTypes) || shownType == None)
+        {
+            display.setBounds (c);
+            return;
+        }
+        const auto& ctl = controls[(size_t) shownType];
+        auto controlsArea = c.removeFromBottom (primaryH + (ctl.secondary.empty() ? 0 : 16 + secondaryH));
         c.removeFromBottom (Theme::spaceS);
         display.setBounds (c);
 
-        fxCard.clearCaptions();
-        if (! juce::isPositiveAndBelow (shownType, (int) NumTypes) || shownType == None)
-            return;
-        const auto& ctl = controls[(size_t) shownType];
         auto placeRow = [] (const std::vector<juce::Component*>& comps, juce::Rectangle<int> row, int cellW)
         {
             const int n = (int) comps.size();
@@ -1055,7 +1068,7 @@ struct FxPage::Impl
         };
         if (ctl.secondary.empty())
         {
-            placeRow (ctl.primary, controlsArea.withSizeKeepingCentre (controlsArea.getWidth(), primaryH), 118);
+            placeRow (ctl.primary, controlsArea, 118);
         }
         else
         {
