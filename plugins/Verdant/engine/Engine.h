@@ -1,12 +1,17 @@
 #pragma once
 
-// The Verdant engine: MIDI -> Arp -> StepSeq -> voice allocator -> voices ->
-// Sympathetic body -> FX rack -> master. Audio-thread safe after prepare():
-// no allocation, locks or I/O inside process().
+// The Verdant engine: MIDI -> Arp -> StepSeq -> voice allocator (poly / mono /
+// legato, glide, 2 ms steal fades) -> voices (control blocks of <= 32 samples,
+// split at event offsets) -> Sympathetic body -> FX rack -> master (20 ms
+// smoothed gain). A second, global mod-matrix pass (macros, wheel, bend,
+// channel aftertouch, Free-mode LFOs, Seq Mod + the last-triggered voice's
+// sources) drives master, global pitch, FX and Sympathetic params.
 //
-// Owner: W-D. FOUNDATION STUB: poly voice allocation with up to `voices` voices
-// and oldest-note stealing, sustain pedal, pitch bend, the mod matrix per voice
-// at control rate (32 samples), smoothed master gain, visual state.
+// Audio-thread safe after prepare(): no allocation, locks or I/O inside
+// process(). Deterministic: the same params, living seed and event sequence
+// render bit-identical output.
+//
+// Owner: W-D.
 
 #include "Common.h"
 #include "Fx.h"
@@ -69,21 +74,39 @@ public:
     void setUserTable (int osc, std::shared_ptr<const Wavetable>);     // message thread (HandOff inside); used when {o}_table == User
     void setLfoShape (int lfo, std::shared_ptr<const LfoShape>);        // message thread
     void setLivingSeed (uint32_t);
+    /** Any numSamples (blocks longer than the prepared maxBlock are split); events sorted by sampleOffset. */
     void process (float* L, float* R, int numSamples, const MidiEvent* events, int numEvents);
+    /** Message thread: frees user tables / LFO shapes the audio thread has swapped out (call from a timer). */
+    void releaseRetired();
     const VisualState& visuals() const noexcept { return vis; }
     int latencySamples() const noexcept { return 0; }
     float tailSeconds() const noexcept;                                // max (release) + fx tail
 
 private:
+    void processChunk (float* L, float* R, int numSamples, const MidiEvent* events, int numEvents) noexcept;
     void handleEvent (const MidiEvent&) noexcept;
     void noteOn (int note, float velocity) noexcept;
     void noteOff (int note) noexcept;
-    void renderControlBlock (float* L, float* R, int numSamples) noexcept;
+    void releaseAll() noexcept;
+    void renderControlBlock (float* L, float* R, int numSamples, int blockOffset) noexcept;
+    void updateBlockContext() noexcept;
+    void updateGlobalSources() noexcept;
     void updateGlobalModulation() noexcept;
+    Transport transportAt (int sampleOffset) const noexcept;
+    NoteStart makeNoteStart (int note, float velocity) noexcept;
+    int voiceLimit() const noexcept;
+    int voiceMode() const noexcept;
+
+    // Mono / Legato note stack (last-note priority; releasing the top note returns to the held one).
+    struct HeldNote { int note; float velocity; };
+    void stackPush (int note, float velocity) noexcept;
+    bool stackRemove (int note) noexcept;   // true if it was the top
 
     double sr = 44100.0;
+    int maxBlockSize = 512;
     ParamValues params {}, globalModulated {};
     ModRouting routing;
+    ap::Scale scale;
     Transport transport;
     std::array<Voice, kMaxVoices> voices;
     int lastVoice = -1;
@@ -91,8 +114,12 @@ private:
     uint32_t noteCounter = 0;
     float bend = 0.0f, wheel = 0.0f, aftertouch = 0.0f;
     bool sustainDown = false;
+    float lastNotePitch = 60.0f;
+    bool haveLastNote = false;
+    std::array<HeldNote, 128> heldNotes {};
+    int numHeld = 0;
     std::atomic<uint32_t> livingSeed { 0x5EED1234u };
-    std::atomic<float> tail { 0.3f };
+    std::atomic<float> tail { 1.3f };
 
     std::array<std::shared_ptr<const Wavetable>, kNumFactoryTables> factoryTables;
     std::array<HandOff<Wavetable>, 2> userTables;
@@ -100,14 +127,19 @@ private:
     std::array<const Wavetable*, 2> userTablePtr {};
     std::array<const LfoShape*, kNumLfos> lfoShapePtr {};
 
+    // Global (shared) LFOs: the Free-mode value of each LFO for every voice and for global destinations.
+    std::array<Lfo, kNumLfos> freeLfos;
+    float seqMod = 0.0f;                         // Seq Mod source, smoothed by 2 ms
+    VoiceBlockContext ctx;                       // shared by all voices for the current control block
+
     Arpeggiator arp;
     StepSequencer seq;
-    std::vector<MidiEvent> arpOut, seqOut;     // sized in the constructor (kMaxBlock events each)
+    std::vector<MidiEvent> arpOut, seqOut, chunkEvents;   // sized in the constructor (kMaxBlock events each)
 
     Sympathetic sympathetic;
     FxRack fx;
     ap::Smoother master;
-    std::array<float, kNumModDestinations + 1> offsets {};
+    std::array<float, kNumModDestinations + 1> offsets {}, globalOffsets {};
     VisualState vis;
 };
 

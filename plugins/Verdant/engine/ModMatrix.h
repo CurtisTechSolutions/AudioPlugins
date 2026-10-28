@@ -5,7 +5,11 @@
 // clamped to 0..1, then fromNormalised. Amount -100..100 % maps to -1..1 in
 // the normalised domain.
 //
-// Owner: W-D. FOUNDATION: a complete, straightforward implementation.
+// apply() is O(slots): it accumulates the active slots into their destinations
+// and converts only the touched destinations; it never allocates and is
+// noexcept, so it runs per voice per control block on the audio thread.
+//
+// Owner: W-D.
 
 #include "Params.h"
 
@@ -23,8 +27,11 @@ struct ModRoute
 
 struct ModRouting { std::array<ModRoute, kModSlots> slots; };
 
-/** Reads the mod{n}_src / _dst / _amt params. */
+/** Reads the mod{n}_src / _dst / _amt params (amount % -> -1..1, out-of-range sources / destinations -> None). */
 ModRouting routingFrom (const ParamValues&);
+
+/** True when the mod{n}_src / _dst / _amt params differ between a and b (the routing must be re-derived). */
+bool routingParamsDiffer (const ParamValues& a, const ParamValues& b) noexcept;
 
 struct ModSourceValues { std::array<float, (int) ModSource::Count> v {}; };
 
