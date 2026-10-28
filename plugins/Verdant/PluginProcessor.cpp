@@ -86,57 +86,6 @@ namespace
         return std::make_unique<juce::AudioParameterFloat> (pid, name, range, in.def, attrs);
     }
 
-    bool convertMidi (const juce::MidiMessage& m, int samplePosition, int numSamples, MidiEvent& e)
-    {
-        e = MidiEvent();
-        e.sampleOffset = juce::jlimit (0, juce::jmax (0, numSamples - 1), samplePosition);
-        e.channel = m.getChannel();
-
-        if (m.isNoteOn())
-        {
-            e.type = MidiEvent::Type::NoteOn;
-            e.note = m.getNoteNumber();
-            e.value = m.getFloatVelocity();
-        }
-        else if (m.isNoteOff())
-        {
-            e.type = MidiEvent::Type::NoteOff;
-            e.note = m.getNoteNumber();
-            e.value = m.getFloatVelocity();
-        }
-        else if (m.isPitchWheel())
-        {
-            e.type = MidiEvent::Type::PitchBend;
-            e.value = juce::jlimit (-1.0f, 1.0f, (float) (m.getPitchWheelValue() - 8192) / 8192.0f);
-        }
-        else if (m.isAftertouch())
-        {
-            e.type = MidiEvent::Type::PolyAftertouch;
-            e.note = m.getNoteNumber();
-            e.value = (float) m.getAfterTouchValue() / 127.0f;
-        }
-        else if (m.isChannelPressure())
-        {
-            e.type = MidiEvent::Type::Aftertouch;
-            e.value = (float) m.getChannelPressureValue() / 127.0f;
-        }
-        else if (m.isAllNotesOff() || m.isAllSoundOff())
-        {
-            e.type = MidiEvent::Type::AllNotesOff;
-        }
-        else if (m.isController())
-        {
-            e.cc = m.getControllerNumber();
-            e.value = (float) m.getControllerValue() / 127.0f;
-            e.type = e.cc == 1 ? MidiEvent::Type::ModWheel : (e.cc == 64 ? MidiEvent::Type::Sustain : MidiEvent::Type::Cc);
-        }
-        else
-        {
-            return false;
-        }
-        return true;
-    }
-
     std::shared_ptr<const Wavetable> buildTable (const UserTable& t)
     {
         if (t.numFrames <= 0 || t.frames.size() < (size_t) t.numFrames * (size_t) kFrameSize)
@@ -147,6 +96,33 @@ namespace
     bool sameTable (const UserTable& a, const UserTable& b)
     {
         return a.numFrames == b.numFrames && a.name == b.name && a.frames == b.frames;
+    }
+
+    bool sameShape (const LfoShape& a, const LfoShape& b)
+    {
+        if (a.points.size() != b.points.size())
+            return false;
+        for (size_t i = 0; i < a.points.size(); ++i)
+            if (! juce::exactlyEqual (a.points[i].x, b.points[i].x)
+                || ! juce::exactlyEqual (a.points[i].y, b.points[i].y)
+                || ! juce::exactlyEqual (a.points[i].curve, b.points[i].curve))
+                return false;
+        return true;
+    }
+
+    /** Engine::releaseRetired() frees tables / shapes the audio thread has swapped out (W-D adds it;
+        compiled in only when the engine provides it — HandOff::post() also drains). */
+    template <class E>
+    void releaseRetiredOf (E& engine)
+    {
+        if constexpr (requires { engine.releaseRetired(); })
+            engine.releaseRetired();
+    }
+
+    bool isMessageThread()
+    {
+        auto* mm = juce::MessageManager::getInstanceWithoutCreating();
+        return mm != nullptr && mm->isThisTheMessageThread();
     }
 }
 
@@ -174,14 +150,24 @@ Processor::Processor()
     monoScratch.assign ((size_t) kMaxBlock, 0.0f);
     snapshot = defaultValues();
     postExtrasToEngine (extras);
+    uiExtras = extras;
+
+    breedState.parentA = initPatch();
+    breedState.parentB = initPatch();
+    breedState.parentAName = breedState.parentBName = juce::String::fromUTF8 (breedState.parentA.name.c_str());
 
     presetManager = std::make_unique<PresetManager> (*this);
     backgroundTasks = std::make_unique<BackgroundTasks> (*this);
+
+    startTimer (500);
 }
 
 Processor::~Processor()
 {
-    backgroundTasks.reset();   // stop the worker before anything it might call into goes away
+    stopTimer();
+    cancelPendingUpdate();
+    backgroundTasks.reset();   // cancels and joins the worker (bounded wait) before anything it calls goes away
+    presetManager.reset();
 }
 
 const juce::String Processor::getName() const
@@ -193,14 +179,32 @@ const juce::String Processor::getName() const
    #endif
 }
 
+double Processor::getTailLengthSeconds() const
+{
+    const double t = (double) eng.tailSeconds();
+    return std::isfinite (t) ? juce::jlimit (0.0, 60.0, t) : 10.0;
+}
+
 void Processor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    eng.prepare (sampleRate, juce::jlimit (1, kMaxBlock, samplesPerBlock));
+    preparedBlock = juce::jlimit (1, kMaxBlock, samplesPerBlock > 0 ? samplesPerBlock : 512);
+    eng.prepare (sampleRate > 0.0 ? sampleRate : 44100.0, preparedBlock);
+    auditionPlaying = -1;
+    auditionRemaining = 0;
     setLatencySamples (eng.latencySamples());
+}
+
+void Processor::reset()
+{
+    eng.reset();
+    auditionPlaying = -1;
+    auditionRemaining = 0;
 }
 
 bool Processor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
+    if (! layouts.getMainInputChannelSet().isDisabled())
+        return false;
     const auto& out = layouts.getMainOutputChannelSet();
     return out == juce::AudioChannelSet::stereo() || out == juce::AudioChannelSet::mono();
 }
@@ -212,13 +216,119 @@ Transport Processor::readTransport()
     {
         if (const auto pos = ph->getPosition())
         {
-            if (const auto bpm = pos->getBpm())          { t.bpm = *bpm; t.hasTempo = true; }
-            if (const auto ppq = pos->getPpqPosition())  t.ppq = *ppq;
-            if (const auto time = pos->getTimeInSamples()) t.sampleTime = *time;
+            if (const auto bpm = pos->getBpm(); bpm.hasValue() && *bpm > 0.0 && std::isfinite (*bpm))
+            {
+                t.bpm = *bpm;
+                t.hasTempo = true;
+            }
+            if (const auto ppq = pos->getPpqPosition(); ppq.hasValue() && std::isfinite (*ppq))
+                t.ppq = *ppq;
+            if (const auto time = pos->getTimeInSamples())
+                t.sampleTime = *time;
             t.playing = pos->getIsPlaying();
         }
     }
     return t;
+}
+
+int Processor::collectMidi (const juce::MidiBuffer& midi, int numSamples) noexcept
+{
+    int count = 0;
+    const auto push = [this, &count] (MidiEvent::Type type, int offset, int channel, int note, float value, int cc) noexcept
+    {
+        if (count < kMaxMidiEvents)
+            midiEvents[(size_t) count++] = MidiEvent { type, offset, channel, note, value, cc };
+    };
+
+    // A pending audition starts at the top of the block (only the newest request counts).
+    if (const int ready = auditionFifo.getNumReady(); ready > 0)
+    {
+        AuditionRequest request {};
+        auditionFifo.read (ready).forEach ([this, &request] (int index) { request = auditionQueue[(size_t) index]; });
+        if (auditionPlaying >= 0)
+            push (MidiEvent::Type::NoteOff, 0, 1, auditionPlaying, 0.0f, 0);
+        push (MidiEvent::Type::NoteOn, 0, 1, request.note, request.velocity, 0);
+        auditionPlaying = request.note;
+        auditionRemaining = (juce::int64) std::llround ((double) request.seconds * getSampleRate());
+    }
+
+    // Host MIDI, decoded straight from the raw bytes (MidiMessage could allocate for long sysex).
+    for (const auto meta : midi)
+    {
+        if (meta.numBytes < 1 || meta.data == nullptr)
+            continue;
+        const int status = meta.data[0];
+        if (status < 0x80 || status >= 0xF0)
+            continue;   // data without status / system messages
+
+        const int offset = juce::jlimit (0, juce::jmax (0, numSamples - 1), meta.samplePosition);
+        const int channel = (status & 0x0F) + 1;
+        const int d1 = meta.numBytes > 1 ? (meta.data[1] & 0x7F) : 0;
+        const int d2 = meta.numBytes > 2 ? (meta.data[2] & 0x7F) : 0;
+        const float v2 = (float) d2 / 127.0f;
+
+        switch (status & 0xF0)
+        {
+            case 0x80: push (MidiEvent::Type::NoteOff, offset, channel, d1, v2, 0); break;
+            case 0x90: push (d2 > 0 ? MidiEvent::Type::NoteOn : MidiEvent::Type::NoteOff, offset, channel, d1, v2, 0); break;
+            case 0xA0: push (MidiEvent::Type::PolyAftertouch, offset, channel, d1, v2, 0); break;
+            case 0xD0: push (MidiEvent::Type::Aftertouch, offset, channel, 0, (float) d1 / 127.0f, 0); break;
+            case 0xE0:
+            {
+                const int bend = d1 | (d2 << 7);   // 0..16383, centre 8192; scaled so both ends reach exactly +-1
+                const float value = (float) (bend - 8192) / (bend >= 8192 ? 8191.0f : 8192.0f);
+                push (MidiEvent::Type::PitchBend, offset, channel, 0, juce::jlimit (-1.0f, 1.0f, value), 0);
+                break;
+            }
+            case 0xB0:
+                switch (d1)
+                {
+                    case 1:  push (MidiEvent::Type::ModWheel, offset, channel, 0, v2, d1); break;
+                    case 64: push (MidiEvent::Type::Sustain, offset, channel, 0, v2, d1); break;
+                    case 121:   // Reset All Controllers
+                        push (MidiEvent::Type::PitchBend, offset, channel, 0, 0.0f, 0);
+                        push (MidiEvent::Type::ModWheel, offset, channel, 0, 0.0f, 1);
+                        push (MidiEvent::Type::Aftertouch, offset, channel, 0, 0.0f, 0);
+                        push (MidiEvent::Type::Sustain, offset, channel, 0, 0.0f, 64);
+                        break;
+                    case 120:   // All Sound Off
+                    case 123:   // All Notes Off
+                    case 124: case 125: case 126: case 127:   // omni / mono / poly mode changes imply all notes off
+                        push (MidiEvent::Type::AllNotesOff, offset, channel, 0, 0.0f, d1);
+                        break;
+                    default: push (MidiEvent::Type::Cc, offset, channel, 0, v2, d1); break;
+                }
+                break;
+            default:
+                break;   // program change (0xC0) is not handled on the audio thread
+        }
+    }
+
+    // The audition's note-off, inserted in order, once its time is up.
+    if (auditionPlaying >= 0)
+    {
+        if (auditionRemaining < (juce::int64) numSamples)
+        {
+            const int offset = (int) juce::jlimit ((juce::int64) 0, (juce::int64) juce::jmax (0, numSamples - 1), auditionRemaining);
+            if (count < kMaxMidiEvents)
+            {
+                int at = count;
+                while (at > 0 && midiEvents[(size_t) at - 1].sampleOffset > offset)
+                {
+                    midiEvents[(size_t) at] = midiEvents[(size_t) at - 1];
+                    --at;
+                }
+                midiEvents[(size_t) at] = MidiEvent { MidiEvent::Type::NoteOff, offset, 1, auditionPlaying, 0.0f, 0 };
+                ++count;
+            }
+            auditionPlaying = -1;
+        }
+        else
+        {
+            auditionRemaining -= numSamples;
+        }
+    }
+    return count;
 }
 
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -229,26 +339,33 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     if (numSamples <= 0 || numChannels <= 0)
         return;
 
+    // Parameters: one flat copy of the APVTS atomics per block (the engine smooths every change).
     for (size_t i = 0; i < (size_t) kNumParams; ++i)
         snapshot[i] = raw[i]->load (std::memory_order_relaxed);
     eng.setParams (snapshot);
-    eng.setTransport (readTransport());
 
-    int numEvents = 0;
-    for (const auto meta : midi)
-    {
-        if (numEvents >= kMaxMidiEvents) break;
-        if (convertMidi (meta.getMessage(), meta.samplePosition, numSamples, midiEvents[(size_t) numEvents]))
-            ++numEvents;
-    }
+    const Transport transport = readTransport();
+    const int numEvents = collectMidi (midi, numSamples);
 
     float* left = buffer.getWritePointer (0);
     float* right = numChannels > 1 ? buffer.getWritePointer (1) : nullptr;
+    const int chunk = juce::jlimit (1, kMaxBlock, preparedBlock);   // never more than the engine was prepared for
+    const double samplesPerBeat = transport.bpm > 0.0 ? 60.0 * getSampleRate() / transport.bpm : 0.0;
     int nextEvent = 0;
 
-    for (int pos = 0; pos < numSamples; pos += kMaxBlock)
+    for (int pos = 0; pos < numSamples; pos += chunk)
     {
-        const int n = juce::jmin (kMaxBlock, numSamples - pos);
+        const int n = juce::jmin (chunk, numSamples - pos);
+
+        Transport t = transport;
+        if (pos > 0)
+        {
+            t.sampleTime += pos;
+            if (samplesPerBeat > 0.0)
+                t.ppq += (double) pos / samplesPerBeat;
+        }
+        eng.setTransport (t);
+
         const int first = nextEvent;
         while (nextEvent < numEvents && midiEvents[(size_t) nextEvent].sampleOffset < pos + n)
             midiEvents[(size_t) nextEvent++].sampleOffset -= pos;
@@ -280,15 +397,20 @@ int Processor::getNumPrograms()
 
 int Processor::getCurrentProgram()
 {
-    return currentProgram;
+    return juce::jlimit (0, getNumPrograms() - 1, currentProgram.load());
 }
 
 void Processor::setCurrentProgram (int index)
 {
-    if (index < 0 || index >= (int) factoryPresets().size())
+    const auto& bank = factoryPresets();
+    if (index < 0 || index >= (int) bank.size())
         return;
-    currentProgram = index;
-    presetManager->load (index);   // factory presets are the first entries
+
+    // Hosts may call this off the message thread: apply the factory patch directly (no file I/O, no
+    // preset-list access) and let the preset manager record it.
+    applyPatch (bank[(size_t) index], false);
+    currentProgram.store (index);
+    presetManager->programLoaded (index);
 }
 
 const juce::String Processor::getProgramName (int index)
@@ -297,24 +419,52 @@ const juce::String Processor::getProgramName (int index)
     return index >= 0 && index < (int) bank.size() ? juce::String::fromUTF8 (bank[(size_t) index].name.c_str()) : juce::String();
 }
 
+void Processor::setCurrentProgramIndex (int index, bool notifyHost)
+{
+    if (index < 0 || index >= (int) factoryPresets().size() || index == currentProgram.load())
+        return;
+    currentProgram.store (index);
+    if (notifyHost)
+        updateHostDisplay (ChangeDetails().withProgramChanged (true));
+}
+
 void Processor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = patchToXml (currentPatch()))
-        copyXmlToBinary (*xml, destData);
+    auto xml = patchToXml (currentPatch());
+    xml->setAttribute ("program", currentProgram.load());
+    copyXmlToBinary (*xml, destData);
 }
 
 void Processor::setStateInformation (const void* data, int sizeInBytes)
 {
+    if (data == nullptr || sizeInBytes <= 0)
+        return;
+
     const auto xml = getXmlFromBinary (data, sizeInBytes);
     if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
         return;
 
     Patch p;
-    if (patchFromXml (*xml, p))
-        applyPatchInternal (p, false, true);
+    if (! patchFromXml (*xml, p))
+        return;
+
+    applyPatchInternal (p, false, true);
+
+    const int program = xml->getIntAttribute ("program", -1);
+    if (program >= 0 && program < (int) factoryPresets().size())
+        currentProgram.store (program);
+    presetManager->stateRestored (p, program);
 }
 
 //==============================================================================
+ParamValues Processor::parameterValues() const noexcept
+{
+    ParamValues v;
+    for (size_t i = 0; i < (size_t) kNumParams; ++i)
+        v[i] = raw[i]->load (std::memory_order_relaxed);
+    return v;
+}
+
 Patch Processor::currentPatch() const
 {
     Patch p;
@@ -322,8 +472,7 @@ Patch Processor::currentPatch() const
         const juce::ScopedLock sl (extrasLock);
         p = extras;
     }
-    for (size_t i = 0; i < (size_t) kNumParams; ++i)
-        p.values[i] = raw[i]->load (std::memory_order_relaxed);
+    p.values = parameterValues();
     return p;
 }
 
@@ -334,13 +483,19 @@ void Processor::applyPatch (const Patch& patch, bool keepName)
 
 void Processor::applyPatchInternal (const Patch& patch, bool keepName, bool restoringState)
 {
+    // State restores, preset and program loads notify every parameter, even unchanged ones: a host may
+    // hold edits the processor has not received yet (VST3 delivers them with the next block), and only
+    // a notification brings its view back in line (pluginval "Plugin state restoration"). Live blends /
+    // auditions (keepName) touch only what changed, so a 20 Hz blend does not flood the host.
+    const bool notifyAll = restoringState || ! keepName;
     for (int i = 0; i < kNumParams; ++i)
     {
-        const float target = clampToRange ((P) i, patch.values[(size_t) i]);
-        if (! juce::exactlyEqual (raw[(size_t) i]->load(), target))
+        const float v = patch.values[(size_t) i];
+        const float target = std::isfinite (v) ? clampToRange ((P) i, v) : info ((P) i).def;
+        if (notifyAll || ! juce::exactlyEqual (raw[(size_t) i]->load(), target))
         {
             auto* p = parameters[(size_t) i];
-            p->setValueNotifyingHost (p->convertTo0to1 (target));
+            p->setValueNotifyingHost (p->convertTo0to1 (target));   // the layout's own plain -> normalised mapping
         }
     }
 
@@ -348,6 +503,7 @@ void Processor::applyPatchInternal (const Patch& patch, bool keepName, bool rest
     {
         const juce::ScopedLock sl (extrasLock);
         Patch next = patch;
+        next.values = {};   // extras only; parameters live in the APVTS
         if (keepName)
         {
             next.name = extras.name;
@@ -373,7 +529,7 @@ void Processor::applyPatchInternal (const Patch& patch, bool keepName, bool rest
     }
 
     postExtrasToEngine (copy);
-    patchChanged.sendChangeMessage();
+    extrasChanged (true);
 }
 
 void Processor::postExtrasToEngine (const Patch& p)
@@ -388,8 +544,46 @@ void Processor::postExtrasToEngine (const Patch& p)
         installedTables[(size_t) o] = table;
     }
     for (int l = 0; l < kNumLfos; ++l)
+    {
+        if (shapesInstalled && sameShape (p.lfoShapes[(size_t) l], installedShapes[(size_t) l]))
+            continue;
         eng.setLfoShape (l, std::make_shared<const LfoShape> (p.lfoShapes[(size_t) l]));
+        installedShapes[(size_t) l] = p.lfoShapes[(size_t) l];
+    }
+    shapesInstalled = true;
     eng.setLivingSeed (p.livingSeed);
+    releaseRetiredOf (eng);
+}
+
+void Processor::extrasChanged (bool modifiesPatch)
+{
+    if (modifiesPatch)
+        extrasRev.fetch_add (1, std::memory_order_acq_rel);
+
+    if (isMessageThread())
+    {
+        cancelPendingUpdate();
+        handleAsyncUpdate();
+    }
+    else
+    {
+        triggerAsyncUpdate();   // a host thread (state restore, program change): refresh on the message thread
+    }
+}
+
+void Processor::handleAsyncUpdate()
+{
+    {
+        const juce::ScopedLock sl (extrasLock);
+        uiExtras = extras;
+    }
+    patchChanged.sendChangeMessage();
+}
+
+void Processor::timerCallback()
+{
+    const juce::ScopedLock sl (engineLock);
+    releaseRetiredOf (eng);
 }
 
 void Processor::setParameterPlain (P param, float plain)
@@ -400,9 +594,27 @@ void Processor::setParameterPlain (P param, float plain)
     p->endChangeGesture();
 }
 
+void Processor::setPatchInfo (const juce::String& name, const juce::String& category,
+                              const juce::StringArray& tags, const juce::String& author)
+{
+    {
+        const juce::ScopedLock sl (extrasLock);
+        extras.name = name.toStdString();
+        extras.category = category.toStdString();
+        extras.author = author.toStdString();
+        extras.tags.clear();
+        for (const auto& t : tags)
+            if (t.trim().isNotEmpty())
+                extras.tags.push_back (t.trim().toStdString());
+    }
+    extrasChanged (true);
+}
+
+//==============================================================================
 bool Processor::setModulation (int destIndex, ModSource source, float amount)
 {
-    if (destIndex < 1 || destIndex > numModDestinations() || source == ModSource::None || source >= ModSource::Count)
+    if (destIndex < 1 || destIndex > numModDestinations() || source == ModSource::None || source >= ModSource::Count
+        || ! std::isfinite (amount))
         return false;
 
     const bool clear = juce::exactlyEqual (amount, 0.0f);
@@ -442,6 +654,22 @@ bool Processor::setModulation (int destIndex, ModSource source, float amount)
     return true;
 }
 
+std::vector<std::pair<int, ModSource>> Processor::modulationsFor (int destIndex) const
+{
+    std::vector<std::pair<int, ModSource>> result;
+    if (destIndex < 1 || destIndex > numModDestinations())
+        return result;
+    for (int s = 0; s < kModSlots; ++s)
+    {
+        const int src = (int) std::lround (raw[(size_t) modSrc (s)]->load());
+        const int dst = (int) std::lround (raw[(size_t) modDst (s)]->load());
+        if (dst == destIndex && src > (int) ModSource::None && src < (int) ModSource::Count)
+            result.emplace_back (s, (ModSource) src);
+    }
+    return result;
+}
+
+//==============================================================================
 void Processor::rerollSeed()
 {
     uint32_t seed = 0;
@@ -449,26 +677,29 @@ void Processor::rerollSeed()
         const juce::ScopedLock sl (extrasLock);
         if (extras.seedLocked)
             return;
-        seed = (uint32_t) juce::Random::getSystemRandom().nextInt64();
+        auto& rng = juce::Random::getSystemRandom();
+        do { seed = (uint32_t) rng.nextInt64(); } while (seed == extras.livingSeed);
         extras.livingSeed = seed;
     }
     {
         const juce::ScopedLock sl (engineLock);
         eng.setLivingSeed (seed);
     }
-    patchChanged.sendChangeMessage();
+    extrasChanged (true);
 }
 
 void Processor::setSeedLocked (bool locked)
 {
     {
         const juce::ScopedLock sl (extrasLock);
+        if (extras.seedLocked == locked)
+            return;
         extras.seedLocked = locked;
     }
-    patchChanged.sendChangeMessage();
+    extrasChanged (false);   // a performance setting: the preset does not count as modified
 }
 
-bool Processor::isSeedLocked() const
+bool Processor::seedLocked() const
 {
     const juce::ScopedLock sl (extrasLock);
     return extras.seedLocked;
@@ -486,9 +717,9 @@ void Processor::setMacroName (int macro, const juce::String& name)
         return;
     {
         const juce::ScopedLock sl (extrasLock);
-        extras.macroNames[(size_t) macro] = name.toStdString();
+        extras.macroNames[(size_t) macro] = name.removeCharacters ("\r\n").toStdString();
     }
-    patchChanged.sendChangeMessage();
+    extrasChanged (true);
 }
 
 void Processor::setLfoShape (int lfo, const LfoShape& shape)
@@ -502,25 +733,100 @@ void Processor::setLfoShape (int lfo, const LfoShape& shape)
     {
         const juce::ScopedLock sl (engineLock);
         eng.setLfoShape (lfo, std::make_shared<const LfoShape> (shape));
+        installedShapes[(size_t) lfo] = shape;
+        releaseRetiredOf (eng);
     }
-    patchChanged.sendChangeMessage();
+    extrasChanged (true);
 }
 
 void Processor::setUserTable (int osc, const UserTable& table, std::shared_ptr<const Wavetable> built)
 {
     if (osc < 0 || osc > 1)
         return;
+    if (built == nullptr)
+        built = buildTable (table);   // nullptr for an empty table: the engine falls back to factory table 0
+    const bool empty = built == nullptr;
     {
         const juce::ScopedLock sl (extrasLock);
         extras.userTables[(size_t) osc] = table;
     }
     {
         const juce::ScopedLock sl (engineLock);
-        eng.setUserTable (osc, built != nullptr ? std::move (built) : buildTable (table));
+        eng.setUserTable (osc, std::move (built));
         installedTables[(size_t) osc] = table;
+        releaseRetiredOf (eng);
     }
-    setParameterPlain (oscParam (osc, OscParam::Table), (float) kNumFactoryTables);   // "User"
-    patchChanged.sendChangeMessage();
+    if (! empty)
+        setParameterPlain (oscParam (osc, OscParam::Table), (float) kNumFactoryTables);   // "User"
+    extrasChanged (true);
+}
+
+void Processor::auditionNote (int midiNote, float seconds, float velocity)
+{
+    const AuditionRequest request { juce::jlimit (0, 127, midiNote),
+                                    std::isfinite (velocity) ? juce::jlimit (0.01f, 1.0f, velocity) : 0.8f,
+                                    std::isfinite (seconds) ? juce::jlimit (0.01f, 10.0f, seconds) : 0.4f };
+    auditionFifo.write (1).forEach ([this, &request] (int index) { auditionQueue[(size_t) index] = request; });
+}
+
+//==============================================================================
+void Processor::breedNow()
+{
+    auto& b = breedState;
+    BreedSettings settings;
+    settings.mutation = juce::jlimit (0.0f, 1.0f, std::isfinite (b.mutation) ? b.mutation : 0.25f);
+    settings.count = 8;
+    settings.seed = b.seed;
+
+    auto children = verdant::breed (b.parentA, b.parentB, settings);
+    b.history.push (b.parentA, b.parentB, children);
+    b.children = std::move (children);
+    breedingChanged.sendChangeMessage();
+}
+
+void Processor::applyChild (int index)
+{
+    if (index < 0 || index >= (int) breedState.children.size())
+        return;
+    const Patch child = breedState.children[(size_t) index];   // applyPatch may re-enter the UI
+    applyPatch (child, false);
+}
+
+void Processor::undoBreed()
+{
+    auto& b = breedState;
+    if (! b.history.canUndo())
+        return;
+    b.history.undo();
+    if (const auto* kids = b.history.current())
+        b.children = *kids;
+    else
+        b.children.clear();
+    breedingChanged.sendChangeMessage();
+}
+
+void Processor::setParentFromCurrent (int which)
+{
+    if (which < 0 || which > 1)
+        return;
+    auto p = currentPatch();
+    const auto name = juce::String::fromUTF8 (p.name.c_str());
+    (which == 0 ? breedState.parentA : breedState.parentB) = std::move (p);
+    (which == 0 ? breedState.parentAName : breedState.parentBName) = name;
+    breedingChanged.sendChangeMessage();
+}
+
+void Processor::setParentFromPreset (int which, int presetIndex)
+{
+    if (which < 0 || which > 1)
+        return;
+    Patch p;
+    if (! presetManager->readPatch (presetIndex, p))
+        return;
+    const auto name = juce::String::fromUTF8 (p.name.c_str());
+    (which == 0 ? breedState.parentA : breedState.parentB) = std::move (p);
+    (which == 0 ? breedState.parentAName : breedState.parentBName) = name;
+    breedingChanged.sendChangeMessage();
 }
 
 } // namespace verdant

@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <memory>
+#include <iterator>
 #include <vector>
 
 namespace
@@ -519,6 +520,88 @@ void testVerdant (Host& host)
     for (int b = 0; b < 50; ++b) host.processBlock (silence);
     host.setParam ("Voices", "16");
     host.setParam ("Env 1 Release", "300 ms");
+
+    // MIDI conversion: the pitch wheel at full up bends by the bend range (default 2 st: C4 -> D4).
+    host.midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+    host.midi.addEvent (juce::MidiMessage::pitchWheel (1, 16383), 0);
+    std::vector<float> bent;
+    for (int b = 0; b < 30; ++b) host.processBlock (silence, &bent);
+    checkNear (measureHz (bent, 4096), 293.66, 5.0, "pitch wheel up bends by the bend range");
+    host.midi.addEvent (juce::MidiMessage::pitchWheel (1, 8192), 0);
+    host.midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+    for (int b = 0; b < 100; ++b) host.processBlock (silence);
+
+    // Sustain pedal (CC64) holds released notes until the pedal goes up.
+    host.midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 127), 0);
+    host.midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+    for (int b = 0; b < 10; ++b) host.processBlock (silence);
+    host.midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+    std::vector<float> held;
+    for (int b = 0; b < 60; ++b) host.processBlock (silence, &held);
+    check (rmsOf (held, held.size() - kBlock * 4, held.size()) > 0.01, "sustain pedal holds a released note");
+    host.midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 0), 0);
+    std::vector<float> pedalUp;
+    for (int b = 0; b < 300; ++b) host.processBlock (silence, &pedalUp);
+    check (rmsOf (pedalUp, pedalUp.size() - kBlock * 4, pedalUp.size()) < 1.0e-4, "pedal up releases the held note");
+
+    // All Notes Off (CC123) releases everything that is held.
+    for (int n : { 60, 64 }) host.midi.addEvent (juce::MidiMessage::noteOn (1, n, (juce::uint8) 100), 0);
+    for (int b = 0; b < 10; ++b) host.processBlock (silence);
+    host.midi.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+    std::vector<float> allOff;
+    for (int b = 0; b < 300; ++b) host.processBlock (silence, &allOff);
+    check (rmsOf (allOff, allOff.size() - kBlock * 4, allOff.size()) < 1.0e-4, "all notes off silences held notes");
+
+    // State round trip: changed parameters of every kind come back exactly after other edits.
+    {
+        struct Probe { const char* name; const char* text; float other; };
+        struct Saved { float value = 0.0f; juce::String text; };
+        Probe probes[] = { { "Osc A Position", "37 %", 0.9f },        // linear float
+                           { "Filter 1 Cutoff", "1.5 kHz", 0.95f },    // skewed float
+                           { "Voice Mode", "Mono", 1.0f },             // choice
+                           { "Osc A Unison", "5", 0.0f },              // int
+                           { "Mod 3 Amount", "-42 %", 0.75f } };       // bipolar float
+        for (auto& p : probes)
+            host.setParam (p.name, p.text);
+        host.processBlock (silence);   // VST3 delivers parameter edits to the processor with the next block
+        Saved saved[std::size (probes)];
+        for (size_t i = 0; i < std::size (probes); ++i)
+            if (auto* param = host.param (probes[i].name))
+                saved[i] = { param->getValue(), param->getCurrentValueAsText() };
+
+        juce::MemoryBlock state;
+        host.plugin->getStateInformation (state);
+        for (auto& p : probes)
+            host.setParamNormalised (p.name, p.other);
+        host.processBlock (silence);
+        host.plugin->setStateInformation (state.getData(), (int) state.getSize());
+        host.processBlock (silence);
+
+        bool valuesBack = true, textBack = true;
+        for (size_t i = 0; i < std::size (probes); ++i)
+            if (auto* param = host.param (probes[i].name))
+            {
+                if (std::fabs (param->getValue() - saved[i].value) > 1.0e-4f)
+                {
+                    std::printf ("    %s: %.5f after restore, %.5f saved\n", probes[i].name, param->getValue(), saved[i].value);
+                    valuesBack = false;
+                }
+                if (param->getCurrentValueAsText() != saved[i].text)
+                {
+                    std::printf ("    %s: '%s' after restore, '%s' saved\n", probes[i].name,
+                                 param->getCurrentValueAsText().toRawUTF8(), saved[i].text.toRawUTF8());
+                    textBack = false;
+                }
+            }
+        check (valuesBack, "state round trip restores the changed parameter values");
+        check (textBack, "restored parameters read back as the saved text (e.g. 37 %, 1.5 kHz, Mono)");
+        check (host.outputIsFinite(), "still processing after restoring a changed state");
+
+        for (auto& p : probes)   // back to the defaults for the program check below
+            if (auto* param = host.param (p.name))
+                param->setValueNotifyingHost (param->getDefaultValue());
+        host.processBlock (silence);
+    }
 
     // Factory presets are the program list; loading one still plays.
     check (host.plugin->getNumPrograms() > 1, "factory presets are exposed as programs");
