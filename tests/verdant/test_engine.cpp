@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <utility>
 #include <vector>
 
 using namespace verdant;
@@ -541,6 +542,48 @@ AP_TEST (engine_sustain_pedal)
     CHECK (rms (r.mono, r.now() - 2048, r.now()) < 1.0e-4);
 }
 
+AP_TEST (engine_sustain_pedal_holds_the_arp_input)
+{
+    // With the arp on, the pedal holds the arp's input note (the pattern keeps playing after the
+    // key is released) instead of sustaining every generated note (which piled up voices).
+    auto v = still();
+    v[(size_t) P::ArpOn] = 1.0f;
+    v[(size_t) P::ArpOct] = 2.0f;
+    v[(size_t) P::ArpDiv] = (float) (int) ap::NoteDivision::Sixteenth;   // 125 ms at the default 120 bpm
+
+    auto run = [&] (bool pedal, int& maxActive)
+    {
+        Rig r (v);
+        maxActive = 0;
+        auto tick = [&] (const std::vector<MidiEvent>& e = {})
+        {
+            r.block (e);
+            maxActive = std::max (maxActive, r.engine->visuals().activeVoices.load());
+        };
+        std::vector<MidiEvent> first;
+        if (pedal) first.push_back (ev (MidiEvent::Type::Sustain, 0, 1.0f));
+        first.push_back (noteOn (60));
+        tick (first);
+        while (r.now() < (size_t) (0.5 * kRate)) tick();
+        tick ({ noteOff (60) });
+        while (r.now() < (size_t) (1.5 * kRate)) tick();
+        const double afterKey = rms (r.mono, (size_t) (1.0 * kRate), (size_t) (1.5 * kRate));
+        tick ({ ev (MidiEvent::Type::Sustain, 0, 0.0f) });
+        while (r.now() < (size_t) (2.5 * kRate)) tick();
+        const double afterPedal = rms (r.mono, (size_t) (2.2 * kRate), (size_t) (2.5 * kRate));
+        return std::pair<double, double> { afterKey, afterPedal };
+    };
+
+    int maxFree = 0, maxPedal = 0;
+    const auto free = run (false, maxFree);
+    const auto held = run (true, maxPedal);
+    std::printf ("  arp: voices %d free / %d with pedal; rms after key-up %.4f / %.4f\n", maxFree, maxPedal, free.first, held.first);
+    CHECK (free.first < 1.0e-4);       // no pedal: the pattern stops with the key
+    CHECK (held.first > 0.01);         // pedal: the pattern keeps running
+    CHECK (maxPedal <= maxFree);       // generated notes keep their gate: no sustained pile-up
+    CHECK (held.second < 1.0e-4);      // pedal up: the held input is released and the pattern stops
+}
+
 AP_TEST (engine_routing_direct_bypasses_filters)
 {
     // Filter 1 nearly closed (20 Hz): Osc A routed to Filter 1 is (almost) silent,
@@ -709,6 +752,40 @@ AP_TEST (engine_long_blocks_and_tail)
     engine->setParams (v);
     CHECK (engine->tailSeconds() >= 3.0f - 1.0e-3f);
     CHECK_EQ (engine->latencySamples(), 0);
+}
+
+AP_TEST (engine_master_level_applies_from_the_first_block)
+{
+    // Integration: the master smoother snaps to the patch's level on the first block after
+    // prepare / reset instead of ramping from a stale value (renderPreview, the sound map and
+    // the first block after prepareToPlay would otherwise start 20 ms at the wrong level).
+    auto quiet = still(), loud = still();
+    quiet[(size_t) P::Master] = -12.0f;
+    loud[(size_t) P::Master] = 6.0f;
+    Rig a (quiet), b (loud);
+    a.block ({ noteOn (60) });
+    b.block ({ noteOn (60) });
+    const double expected = std::pow (10.0, 18.0 / 20.0);
+    double worst = 0.0;
+    int compared = 0;
+    for (size_t i = 0; i < a.now(); ++i)
+        if (std::fabs (a.mono[i]) > 1.0e-5f)
+        {
+            worst = std::max (worst, std::fabs (b.mono[i] / a.mono[i] / expected - 1.0));
+            ++compared;
+        }
+    CHECK (compared > 100);
+    CHECK (worst < 1.0e-3);
+
+    // ... and the same after reset() with a changed master.
+    a.engine->reset();
+    a.engine->setParams (loud);
+    a.block ({ noteOn (60) });
+    float first = 0.0f;
+    for (size_t i = a.now() - kBlock; i < a.now(); ++i) first = std::max (first, std::fabs (a.mono[i]));
+    float ref = 0.0f;
+    for (size_t i = 0; i < (size_t) kBlock; ++i) ref = std::max (ref, std::fabs (b.mono[i]));
+    CHECK_NEAR (first / ref, 1.0, 1.0e-3);
 }
 
 AP_TEST (engine_render_preview_returns_requested_length)

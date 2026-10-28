@@ -354,8 +354,8 @@ namespace
         }
         {   // 5: funky clav: narrow pulse into a resonant band-pass, Env 2 snap, compressed.
             Recipe r ("Pulse Clav", "Keys", { "funky", "percussive", "bright" });
-            r.osc (0, Tbl::PulseWidth, 65.0f, 80.0f)
-             .filter (0, Flt::BP12, 1400.0f, 35.0f, 15.0f, 70.0f)
+            r.osc (0, Tbl::PulseWidth, 45.0f, 80.0f)
+             .filter (0, Flt::BP12, 1000.0f, 12.0f, 15.0f, 70.0f)
              .env (0, 0.5f, 350.0f, 20.0f, 120.0f)
              .env (1, 0.0f, 180.0f, 0.0f, 100.0f)
              .mod (MS::Env2, cutoff1(), 35.0f)
@@ -500,7 +500,7 @@ namespace
         {   // 16: vowel lead: formant table through the formant filter; wheel opens the vowel.
             Recipe r ("Vowel Lead", "Lead", { "vocal", "expressive" });
             r.osc (0, Tbl::FormantVowels, 20.0f, 80.0f)
-             .filter (0, Flt::Formant, 800.0f, 40.0f)
+             .filter (0, Flt::Formant, 1800.0f, 15.0f)
              .env (0, 10.0f, 500.0f, 85.0f, 250.0f)
              .mod (MS::ModWheel, posA(), 60.0f)
              .mod (MS::ModWheel, cutoff1(), 30.0f)
@@ -638,7 +638,7 @@ namespace
             Recipe r ("Crystal Pluck", "Pluck", { "bright", "short", "glassy" });
             r.osc (0, Tbl::PluckDecay, 0.0f, 80.0f)
              .filter (0, Flt::LP12, 8000.0f, 15.0f, 0.0f, 60.0f)
-             .env (0, 0.5f, 450.0f, 0.0f, 350.0f)
+             .env (0, 0.5f, 650.0f, 0.0f, 350.0f)
              .env (1, 0.0f, 500.0f, 0.0f, 300.0f)
              .mod (MS::Env2, posA(), 70.0f)
              .delay (ND::EighthDotted, 35.0f, 25.0f)

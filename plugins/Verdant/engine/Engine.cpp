@@ -15,14 +15,15 @@ namespace
 {
     using TableSet = std::array<std::shared_ptr<const Wavetable>, kNumFactoryTables>;
 
-    // Factory tables are immutable and shared by every engine in the process.
+    // Factory tables are immutable and shared by every engine in the process (and with
+    // anything else that asks factoryTable(), e.g. the UI's table views: one copy each).
     const TableSet& sharedFactoryTables()
     {
         static const TableSet tables = []
         {
             TableSet t;
             for (int i = 0; i < kNumFactoryTables; ++i)
-                t[(size_t) i] = makeFactoryTable (i);
+                t[(size_t) i] = factoryTable (i);
             return t;
         }();
         return tables;
@@ -99,6 +100,7 @@ Engine::Engine()
     arpOut.resize ((size_t) kMaxBlock);
     seqOut.resize ((size_t) kMaxBlock);
     chunkEvents.resize ((size_t) kMaxBlock);
+    patternIn.resize ((size_t) kMaxBlock + 129);
     prepare (44100.0, 512);
 }
 
@@ -131,6 +133,9 @@ void Engine::reset()
     fx.reset();
     bend = wheel = aftertouch = 0.0f;
     sustainDown = false;
+    patternSustain = false;
+    deferredOff.fill (false);
+    numDeferred = 0;
     lastVoice = -1;
     noteOrder = 0;
     noteCounter = 0;
@@ -143,6 +148,7 @@ void Engine::reset()
     for (int l = 0; l < kNumLfos; ++l)
         freeLfos[(size_t) l].noteOn (0xF4EEu + (uint32_t) l);   // deterministic start (S&H seed, phase)
     master.snap (ap::dbToGain (pv (globalModulated, P::Master)));
+    masterPrimed = false;   // the first block after a reset starts at its own master level (no ramp from a stale one)
 }
 
 void Engine::setParams (const ParamValues& v)
@@ -534,6 +540,89 @@ void Engine::process (float* L, float* R, int numSamples, const MidiEvent* event
     }
 }
 
+int Engine::applyPatternSustain (const MidiEvent* events, int numEvents) noexcept
+{
+    // With the arp or sequencer on, the sustain pedal acts on their input: while it is down,
+    // input note-offs are held back (the pattern keeps running on the held notes) and released
+    // at the pedal-up offset. The pedal-down never reaches the voices, so the generated notes
+    // keep their gate instead of piling up as sustained voices. Pedal-ups always pass (they
+    // release anything sustained from before the pattern was switched on).
+    const bool patternOn = pv (params, P::ArpOn) > 0.5f || pv (params, P::SeqOn) > 0.5f;
+    const int capacity = (int) patternIn.size();
+    int n = 0;
+    auto emit = [&] (const MidiEvent& e) noexcept
+    {
+        if (n < capacity) patternIn[(size_t) n++] = e;
+    };
+    auto flushDeferred = [&] (int offset) noexcept
+    {
+        for (int note = 0; note < 128 && numDeferred > 0; ++note)
+            if (deferredOff[(size_t) note])
+            {
+                deferredOff[(size_t) note] = false;
+                --numDeferred;
+                emit (MidiEvent { MidiEvent::Type::NoteOff, offset, 1, note, 0.0f, 0 });
+            }
+        numDeferred = 0;
+    };
+
+    if (! patternOn && (patternSustain || numDeferred > 0))
+    {
+        // The pattern was switched off with the pedal down: the pedal moves to the voices.
+        if (patternSustain)
+            emit (MidiEvent { MidiEvent::Type::Sustain, 0, 1, 0, 1.0f, 64 });
+        patternSustain = false;
+        flushDeferred (0);
+    }
+
+    for (int i = 0; i < numEvents; ++i)
+    {
+        const MidiEvent& e = events[i];
+        if (! patternOn)
+        {
+            emit (e);
+            continue;
+        }
+        const bool isOff = e.type == MidiEvent::Type::NoteOff || (e.type == MidiEvent::Type::NoteOn && e.value <= 0.0f);
+        const int note = std::clamp (e.note, 0, 127);
+        switch (e.type)
+        {
+            case MidiEvent::Type::Sustain:
+                if (e.value >= 0.5f)
+                {
+                    patternSustain = true;
+                }
+                else
+                {
+                    patternSustain = false;
+                    flushDeferred (e.sampleOffset);
+                    emit (e);
+                }
+                break;
+            case MidiEvent::Type::AllNotesOff:
+                patternSustain = false;
+                deferredOff.fill (false);
+                numDeferred = 0;
+                emit (e);
+                break;
+            default:
+                if (isOff && patternSustain)
+                {
+                    if (! deferredOff[(size_t) note]) { deferredOff[(size_t) note] = true; ++numDeferred; }
+                    break;
+                }
+                if (e.type == MidiEvent::Type::NoteOn && ! isOff && deferredOff[(size_t) note])
+                {
+                    deferredOff[(size_t) note] = false;   // struck again while held by the pedal
+                    --numDeferred;
+                }
+                emit (e);
+                break;
+        }
+    }
+    return n;
+}
+
 void Engine::processChunk (float* L, float* R, int numSamples, const MidiEvent* events, int numEvents) noexcept
 {
     std::fill (L, L + numSamples, 0.0f);
@@ -542,8 +631,9 @@ void Engine::processChunk (float* L, float* R, int numSamples, const MidiEvent* 
     for (int o = 0; o < 2; ++o) userTablePtr[(size_t) o] = userTables[(size_t) o].take();
     for (int l = 0; l < kNumLfos; ++l) lfoShapePtr[(size_t) l] = lfoShapes[(size_t) l].take();
 
-    // MIDI -> Arp -> StepSeq (both pass through when off)
-    const int numArp = arp.process (events, numEvents, transport, numSamples, arpOut.data(), (int) arpOut.size());
+    // MIDI -> (pattern sustain) -> Arp -> StepSeq (both pass through when off)
+    const int numIn = applyPatternSustain (events, numEvents);
+    const int numArp = arp.process (patternIn.data(), numIn, transport, numSamples, arpOut.data(), (int) arpOut.size());
     const int numSeq = seq.process (arpOut.data(), std::clamp (numArp, 0, (int) arpOut.size()), transport, numSamples,
                                     seqOut.data(), (int) seqOut.size());
     const int numOut = std::clamp (numSeq, 0, (int) seqOut.size());
@@ -581,7 +671,16 @@ void Engine::processChunk (float* L, float* R, int numSamples, const MidiEvent* 
     fx.setParams (globalModulated, transport);
     fx.process (L, R, numSamples);
 
-    master.setTarget (ap::dbToGain (pv (globalModulated, P::Master)));
+    const float masterGain = ap::dbToGain (pv (globalModulated, P::Master));
+    if (masterPrimed)
+    {
+        master.setTarget (masterGain);
+    }
+    else
+    {
+        master.snap (masterGain);
+        masterPrimed = true;
+    }
     float peak = 0.0f;
     for (int i = 0; i < numSamples; ++i)
     {

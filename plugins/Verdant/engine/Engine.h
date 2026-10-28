@@ -84,6 +84,7 @@ public:
 
 private:
     void processChunk (float* L, float* R, int numSamples, const MidiEvent* events, int numEvents) noexcept;
+    int applyPatternSustain (const MidiEvent* events, int numEvents) noexcept;   // -> patternIn
     void handleEvent (const MidiEvent&) noexcept;
     void noteOn (int note, float velocity) noexcept;
     void noteOff (int note) noexcept;
@@ -136,9 +137,17 @@ private:
     StepSequencer seq;
     std::vector<MidiEvent> arpOut, seqOut, chunkEvents;   // sized in the constructor (kMaxBlock events each)
 
+    // Sustain pedal while the arp or sequencer runs: the pedal holds the pattern's input notes
+    // (their note-offs wait for the pedal) rather than sustaining every generated note.
+    std::vector<MidiEvent> patternIn;            // kMaxBlock + 129 events
+    std::array<bool, 128> deferredOff {};
+    int numDeferred = 0;
+    bool patternSustain = false;
+
     Sympathetic sympathetic;
     FxRack fx;
     ap::Smoother master;
+    bool masterPrimed = false;                   // false until the first block after prepare / reset (snaps instead of ramping)
     std::array<float, kNumModDestinations + 1> offsets {}, globalOffsets {};
     VisualState vis;
 };

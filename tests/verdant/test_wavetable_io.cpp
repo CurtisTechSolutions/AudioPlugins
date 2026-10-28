@@ -1,6 +1,13 @@
 // WavetableIO: WAV parsing (PCM 8/16/24/32, float 32/64, extensible, stereo,
-// odd chunks, clm frame sizes incl. resampling), frame count rules, export ->
-// import bit-exact round trip and rejection of malformed input.
+// odd chunks, clm frame sizes incl. resampling), frame count rules, bit-exact
+// export, export -> import round trip and rejection of malformed input.
+//
+// Wavetable::fromFrames conditions every frame it is given (DC removal,
+// peak normalisation), so imported frames are never the raw file samples.
+// The decode checks therefore compare the import against
+// Wavetable::fromFrames applied to the exactly decoded samples the file must
+// yield: any decode, resampling or frame-selection error shows up as a
+// difference in the conditioned frames.
 
 #include "TestHarness.h"
 
@@ -140,6 +147,58 @@ namespace
     {
         return importWavetableWav (b.data(), b.size(), name);
     }
+
+    /** The decoded value a reader must produce for sample x written by putSample at the given depth. */
+    float decoded (double x, int bits, bool isFloat)
+    {
+        if (isFloat) return (float) x;
+        x = std::clamp (x, -1.0, 1.0);
+        switch (bits)
+        {
+            case 8:  return ((float) std::clamp ((int) std::lround (x * 128.0) + 128, 0, 255) - 128.0f) / 128.0f;
+            case 16: return (float) std::clamp ((long) std::lround (x * 32768.0), -32768L, 32767L) / 32768.0f;
+            case 24: return (float) std::clamp ((long) std::lround (x * 8388608.0), -8388608L, 8388607L) / 8388608.0f;
+            default: return (float) ((double) std::clamp ((long long) std::llround (x * 2147483648.0), -2147483648LL, 2147483647LL) / 2147483648.0);
+        }
+    }
+
+    /** fromFrames of the exactly decoded samples: what the import of `x` (kFrameSize frames) must equal. */
+    std::shared_ptr<Wavetable> reference (const std::vector<double>& x, int bits = 32, bool isFloat = true)
+    {
+        std::vector<float> f (x.size());
+        for (size_t i = 0; i < x.size(); ++i) f[i] = decoded (x[i], bits, isFloat);
+        return Wavetable::fromFrames (f.data(), (int) (x.size() / (size_t) kFrameSize), "ref");
+    }
+
+    /** Largest sample difference over all frames (infinity when the frame counts differ). */
+    double maxDiff (const Wavetable& a, const Wavetable& b)
+    {
+        if (a.numFrames() != b.numFrames()) return 1.0e30;
+        double m = 0.0;
+        for (int f = 0; f < a.numFrames(); ++f)
+            for (int i = 0; i < kFrameSize; ++i)
+                m = std::max (m, std::fabs ((double) a.frame (f)[i] - (double) b.frame (f)[i]));
+        return m;
+    }
+
+    /** Phase of harmonic 1 of a frame (radians, sin = 0). Unaffected by DC removal and normalisation. */
+    double fundamentalPhase (const float* fr)
+    {
+        double s = 0.0, c = 0.0;
+        for (int i = 0; i < kFrameSize; ++i)
+        {
+            s += fr[i] * std::sin (kTwoPi * i / kFrameSize);
+            c += fr[i] * std::cos (kTwoPi * i / kFrameSize);
+        }
+        return std::atan2 (c, s);
+    }
+
+    float framePeak (const float* fr)
+    {
+        float p = 0.0f;
+        for (int i = 0; i < kFrameSize; ++i) p = std::max (p, std::fabs (fr[i]));
+        return p;
+    }
 }
 
 AP_TEST (wavio_pcm16_with_clm)
@@ -155,11 +214,13 @@ AP_TEST (wavio_pcm16_with_clm)
     CHECK_EQ (r.table->numFrames(), 3);
     CHECK (r.table->name() == "Three");
 
-    double maxErr = 0.0;
+    // Exactly the 16-bit decoded samples went into the table (1 LSB off anywhere would show).
+    CHECK (maxDiff (*r.table, *reference (x, 16, false)) <= 1.0e-6);
     for (int f = 0; f < 3; ++f)
-        for (int i = 0; i < kFrameSize; ++i)
-            maxErr = std::max (maxErr, std::fabs ((double) r.table->frame (f)[i] - x[(size_t) f * 2048 + (size_t) i]));
-    CHECK (maxErr <= 1.0 / 32768.0);   // within 1 LSB
+    {
+        const std::vector<double> src (x.begin() + f * 2048, x.begin() + (f + 1) * 2048);
+        CHECK (correlation (r.table->frame (f), src) > 0.99999);
+    }
 }
 
 AP_TEST (wavio_float32_without_clm_uses_2048)
@@ -172,8 +233,12 @@ AP_TEST (wavio_float32_without_clm_uses_2048)
     CHECK (! r.hadClmChunk);
     CHECK_EQ (r.frameSize, 2048);
     CHECK_EQ (r.table->numFrames(), 2);
-    for (int i = 0; i < kFrameSize; ++i)
-        CHECK_EQ (r.table->frame (1)[i], (float) x[2048 + (size_t) i]);   // float data is taken verbatim
+    const auto ref = reference (x);
+    bool same = true;   // float data is taken verbatim: the table is fromFrames of exactly the file's floats
+    for (int f = 0; f < 2; ++f)
+        for (int i = 0; i < kFrameSize; ++i)
+            same = same && r.table->frame (f)[i] == ref->frame (f)[i];
+    CHECK (same);
 }
 
 AP_TEST (wavio_partial_last_frame_dropped)
@@ -187,22 +252,32 @@ AP_TEST (wavio_partial_last_frame_dropped)
 
 AP_TEST (wavio_clm_1024_resampled_keeps_harmonics)
 {
+    // Frame f = harmonic f + 1 plus a weaker, phase-shifted harmonic 3 (f + 1): the resample must keep
+    // both harmonic numbers, their relative amplitude and their phase.
+    const auto frames = [] (int frameSize)
+    {
+        std::vector<double> x ((size_t) 3 * (size_t) frameSize);
+        for (int f = 0; f < 3; ++f)
+            for (int i = 0; i < frameSize; ++i)
+            {
+                const double w = kTwoPi * (f + 1) * i / frameSize;
+                x[(size_t) f * (size_t) frameSize + (size_t) i] = 0.6 * std::sin (w) + 0.25 * std::sin (3.0 * w + 0.5);
+            }
+        return x;
+    };
+
     WavSpec s; s.format = 3; s.bits = 32; s.clm = "<!>  1024 10000000 wavetable (other)";   // extra whitespace on purpose
-    const auto x = harmonicFrames (3, 1024);   // frame 2 = harmonic 3
-    const auto r = importBytes (makeWav (s, { x }));
+    const auto r = importBytes (makeWav (s, { frames (1024) }));
     CHECK (r.table != nullptr);
     if (r.table == nullptr) return;
     CHECK (r.hadClmChunk);
     CHECK_EQ (r.frameSize, 1024);
     CHECK_EQ (r.table->numFrames(), 3);
     for (int f = 0; f < 3; ++f)
-    {
-        const double c = correlation (r.table->frame (f), sineCycle (f + 1));
-        CHECK (c > 0.999);
-        float peak = 0.0f;
-        for (int i = 0; i < kFrameSize; ++i) peak = std::max (peak, std::fabs (r.table->frame (f)[i]));
-        CHECK_NEAR (peak, 0.8, 0.01);   // amplitude kept through the resample
-    }
+        CHECK (correlation (r.table->frame (f), sineCycle (f + 1)) > 0.9);
+    // Identical (to float precision) to the same frames drawn natively at 2048 samples.
+    const double err = maxDiff (*r.table, *reference (frames (2048)));
+    CHECK (err < 1.0e-4);
 }
 
 AP_TEST (wavio_clm_non_power_of_two_and_large)
@@ -244,12 +319,14 @@ AP_TEST (wavio_bit_depths_decode)
         CHECK (r.error.empty());
         CHECK (r.table != nullptr);
         if (r.table == nullptr) continue;
-        double maxErr = 0.0;
-        for (int i = 0; i < kFrameSize; ++i) maxErr = std::max (maxErr, std::fabs ((double) r.table->frame (0)[i] - x[(size_t) i]));
-        CHECK (maxErr <= c.tol + 1.0e-7);
+        // The table holds exactly this depth's decoded samples: a 1-LSB decode error (1/128 .. 2^-31 before
+        // normalisation) would exceed the tolerance for every depth but 32-bit int / 64-bit float, whose
+        // decode is checked against the double value to float precision.
+        CHECK (maxDiff (*r.table, *reference (x, c.bits, c.format == 3)) <= 2.0e-6);
+        CHECK (correlation (r.table->frame (0), x) > 1.0 - c.tol);
     }
 
-    // 24-bit negative full scale and sign extension.
+    // 24-bit negative full scale and sign extension: three impulses whose signs and ratios survive.
     WavSpec s; s.bits = 24;
     std::vector<double> edge ((size_t) kFrameSize, 0.0);
     edge[0] = -1.0; edge[1] = 8388607.0 / 8388608.0; edge[2] = -0.5;
@@ -257,9 +334,11 @@ AP_TEST (wavio_bit_depths_decode)
     CHECK (r.table != nullptr);
     if (r.table != nullptr)
     {
-        CHECK_EQ (r.table->frame (0)[0], -1.0f);
-        CHECK_NEAR (r.table->frame (0)[1], 1.0, 1.0e-6);
-        CHECK_EQ (r.table->frame (0)[2], -0.5f);
+        CHECK (maxDiff (*r.table, *reference (edge, 24, false)) <= 1.0e-6);
+        const float* fr = r.table->frame (0);
+        CHECK (fr[0] < 0.0f && fr[1] > 0.0f && fr[2] < 0.0f);
+        CHECK_NEAR (fr[0] / fr[1], -1.0, 1.0e-3);
+        CHECK_NEAR (fr[2] / fr[0], 0.5, 1.0e-3);
     }
 }
 
@@ -271,7 +350,7 @@ AP_TEST (wavio_extensible_and_odd_chunk_padding)
         const auto r = importBytes (makeWav (s, { x }));
         CHECK (r.error.empty());
         CHECK (r.table != nullptr && r.table->numFrames() == 2 && r.hadClmChunk);
-        if (r.table != nullptr) CHECK_EQ (r.table->frame (1)[100], (float) x[2048 + 100]);
+        if (r.table != nullptr) CHECK (maxDiff (*r.table, *reference (x)) == 0.0);
     }
     {
         WavSpec s; s.format = 0xFFFE; s.subFormat = 1; s.bits = 16;
@@ -306,34 +385,63 @@ AP_TEST (wavio_short_file_is_one_frame)
 
 AP_TEST (wavio_too_many_frames_thinned)
 {
+    // Frame f is a sine whose phase encodes the frame index (pi f / 300): survives DC removal and normalisation.
+    const auto phaseOf = [] (int f) { return 3.141592653589793 * f / 300.0; };
     WavSpec s; s.format = 3; s.bits = 32;
     std::vector<double> x ((size_t) 300 * 2048);
     for (int f = 0; f < 300; ++f)
-        for (int i = 0; i < 2048; ++i) x[(size_t) f * 2048 + (size_t) i] = (double) f / 300.0;   // DC level = frame index
+        for (int i = 0; i < 2048; ++i) x[(size_t) f * 2048 + (size_t) i] = 0.5 * std::sin (kTwoPi * i / 2048.0 + phaseOf (f));
     const auto r = importBytes (makeWav (s, { x }));
     CHECK (r.table != nullptr);
     if (r.table == nullptr) return;
     CHECK_EQ (r.table->numFrames(), kMaxFrames);
-    CHECK_EQ (r.table->frame (0)[0], 0.0f);
-    CHECK_EQ (r.table->frame (kMaxFrames - 1)[0], (float) (299.0 / 300.0));   // first and last frames kept
-    bool ascending = true;
-    for (int f = 1; f < kMaxFrames; ++f) ascending = ascending && r.table->frame (f)[0] > r.table->frame (f - 1)[0];
+    CHECK_NEAR (fundamentalPhase (r.table->frame (0)), phaseOf (0), 1.0e-4);                           // first frame kept
+    CHECK_NEAR (fundamentalPhase (r.table->frame (kMaxFrames - 1)), phaseOf (299), 1.0e-4);            // last frame kept
+    bool evenlySpaced = true, ascending = true;
+    for (int f = 0; f < kMaxFrames; ++f)
+    {
+        const int src = (int) std::lround (f * 299.0 / (kMaxFrames - 1));
+        evenlySpaced = evenlySpaced && std::fabs (fundamentalPhase (r.table->frame (f)) - phaseOf (src)) < 1.0e-4;
+        if (f > 0) ascending = ascending && fundamentalPhase (r.table->frame (f)) > fundamentalPhase (r.table->frame (f - 1));
+    }
+    CHECK (evenlySpaced);
     CHECK (ascending);
 }
 
-AP_TEST (wavio_export_import_round_trip_bit_exact)
+AP_TEST (wavio_export_import_round_trip)
 {
     const int frames = 5;
     std::vector<float> data ((size_t) frames * kFrameSize);
     ap::Rng rng; rng.state = 0xC0FFEEu;
-    for (auto& v : data) v = rng.nextBipolar() * 0.9f;
-    data[3] = 1.0e-30f;   // a denormal-ish tiny value survives too
+    for (auto& v : data) v = rng.nextBipolar() * 0.9f + 0.05f;   // with some DC for fromFrames to remove
     const auto t = Wavetable::fromFrames (data.data(), frames, "Round");
     CHECK (t != nullptr);
     if (t == nullptr) return;
 
     const auto bytes = exportWavetableWav (*t);
     CHECK (bytes.size() > (size_t) frames * kFrameSize * 4);
+
+    // Export is bit-exact: the data chunk holds the table's frames as 32-bit floats.
+    size_t pos = 12, dataAt = 0, dataSize = 0;
+    while (pos + 8 <= bytes.size())
+    {
+        const uint32_t size = (uint32_t) bytes[pos + 4] | ((uint32_t) bytes[pos + 5] << 8) | ((uint32_t) bytes[pos + 6] << 16) | ((uint32_t) bytes[pos + 7] << 24);
+        if (std::string (bytes.begin() + (long) pos, bytes.begin() + (long) pos + 4) == "data") { dataAt = pos + 8; dataSize = size; break; }
+        pos += 8 + size + (size & 1u);
+    }
+    CHECK_EQ (dataSize, (size_t) frames * kFrameSize * 4);
+    bool exportExact = dataAt > 0 && dataAt + dataSize <= bytes.size() && dataSize == (size_t) frames * kFrameSize * 4;
+    for (int f = 0; exportExact && f < frames; ++f)
+        for (int i = 0; i < kFrameSize; ++i)
+        {
+            const uint8_t* p = bytes.data() + dataAt + ((size_t) f * kFrameSize + (size_t) i) * 4;
+            const uint32_t b = (uint32_t) p[0] | ((uint32_t) p[1] << 8) | ((uint32_t) p[2] << 16) | ((uint32_t) p[3] << 24);
+            exportExact = exportExact && b == std::bit_cast<uint32_t> (t->frame (f)[i]);
+        }
+    CHECK (exportExact);
+
+    // Import gives the same (already conditioned) frames back, to float precision: re-running fromFrames
+    // on DC-free, normalised frames only adds FFT rounding.
     const auto r = importBytes (bytes, "Back");
     CHECK (r.error.empty());
     CHECK (r.hadClmChunk);
@@ -341,11 +449,9 @@ AP_TEST (wavio_export_import_round_trip_bit_exact)
     CHECK (r.table != nullptr);
     if (r.table == nullptr) return;
     CHECK_EQ (r.table->numFrames(), frames);
-    bool exact = true;
+    CHECK (maxDiff (*r.table, *t) < 1.0e-5);
     for (int f = 0; f < frames; ++f)
-        for (int i = 0; i < kFrameSize; ++i)
-            exact = exact && std::bit_cast<uint32_t> (r.table->frame (f)[i]) == std::bit_cast<uint32_t> (data[(size_t) f * kFrameSize + (size_t) i]);
-    CHECK (exact);
+        CHECK_NEAR (framePeak (r.table->frame (f)), framePeak (t->frame (f)), 1.0e-5);
 
     // The clm text is the documented one.
     const std::string all (bytes.begin(), bytes.end());
