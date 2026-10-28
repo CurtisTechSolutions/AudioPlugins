@@ -7,7 +7,7 @@ Linux builds too and is used for validation.
 | Plugin | What it is | Type |
 |---|---|---|
 | **Strata** | Polyphonic subtractive synth — 2 PolyBLEP oscillators with unison, sub + noise, multimode SVF with drive, 2 ADSRs, 2 LFOs, glide, chorus / delay / reverb | Instrument |
-| **Verdant** | Flagship wavetable synth: 2 mipmapped wavetable oscillators with warp and 16-voice unison, sub + 5 noise colours, 2 multimode filters, 4 LFOs / 3 envelopes / 8 macros into a 24-slot drag-to-modulate matrix, reorderable 8-slot FX rack, factory presets with a sonic sound map — plus a living drift engine, sample-to-patch matching, physics modulators, key-aware arp/sequencer, patch breeding, sympathetic-string memory and a spectral paint oscillator | Instrument |
+| **Verdant** | Flagship wavetable synth: 2 wavetable oscillators (16 factory tables, WAV import, oversampled mipmaps) with 7 warp modes and 16-voice unison, sub + 5 noise colours, 2 multimode filters (11 types, serial / parallel), 4 LFOs / 3 envelopes / 8 macros into a 24-slot drag-to-modulate matrix, reorderable 8-slot FX rack, 150+ factory presets on a sound map — plus a living drift engine, sample-to-patch matching, physics modulators, a key-aware arp/sequencer with pitch snap to key, patch breeding, sympathetic-string memory and a spectral paint oscillator | Instrument |
 | **VoxNote** | Hum or sing into the mic, get MIDI out: YIN pitch tracking, onset / release gating, retrigger vs. pitch-bend logic, scale snapping, velocity from level, built-in monitor tone | Audio FX with MIDI output |
 | **Intone** | Pitch correction to a key/scale (incl. 12-note custom scale) via formant-preserving PSOLA, retune speed + amount, plus a vocal chain: low cut, de-esser, compressor, body / presence / air EQ | Audio FX |
 | **Ducker** | Sidechain compressor with lookahead and SC low-cut, internal-detector mode, and a tempo-synced *ghost* ducking mode that needs no sidechain routing at all | Audio FX with sidechain input |
@@ -29,6 +29,8 @@ common/          JUCE-side shared code: LookAndFeel, generic parameter panels,
 plugins/         One folder per plugin: PluginProcessor + PluginEditor + CMakeLists
 plugins/Frisson/modules/   Frisson's nine knob modules (JUCE-free, one PRD each in docs/prd/)
 plugins/Verdant/engine/    Verdant's synth engine (JUCE-free static lib verdant_engine)
+plugins/Verdant/ui/        Verdant's editor: theme, knobs, the six pages and their visualisers
+plugins/Verdant/render/    verdant_render: renders the editor pages to PNG without a display
 docs/prd/        Product requirement documents for every plugin and every Frisson knob
 tests/           ap_tests (core unit tests) and host/ (loads each built .vst3 through
                  JUCE's headless host and checks behaviour end to end)
@@ -98,13 +100,15 @@ Proper Developer-ID signing + notarization is a TODO before sharing with other p
   state machine, scales, filters, gain computer, tempo envelope, crossovers, saturation,
   loudness meter, 1/f drift).
 - `frisson_tests` — one test suite per Frisson knob, each asserting the numbers in its PRD.
-- `verdant_tests` — Verdant's JUCE-free engine, one file per area (wavetables and mipmaps,
-  WAV import, paint and sample matching, filters, envelopes, LFOs, mod matrix, voices, living
-  drift, physics, arp/sequencer, FX, sympathetic strings, breeding, presets, sound map, CPU
-  budget), each asserting the numbers in `docs/prd/verdant.md`.
+- `verdant_tests` — Verdant's JUCE-free engine, one file per area (parameters, FFT, wavetables
+  and mipmaps (aliasing < −60 dB from MIDI 24 to 120), oscillator warp and unison, WAV import,
+  paint and sample matching, filters, envelopes, LFOs, mod matrix, voices and MIDI, living
+  drift, physics, arp/sequencer, FX, sympathetic strings, breeding, patch format, factory
+  presets, sound map, CPU budget), each asserting the numbers in `docs/prd/verdant.md`.
 - `host_<Plugin>` — `VST3HostTest` loads the built `.vst3` through JUCE's headless VST3
-  host and checks real behaviour: the synths play C4 in tune and decay to silence,
-  VoxNote turns a 224 Hz tone into A3 with pitch bend and a matching note-off, Intone
+  host and checks real behaviour: the synths play C4 in tune and decay to silence (Verdant
+  also checks voice stealing, pitch bend, the sustain pedal, a state round trip and its
+  factory presets as programs), VoxNote turns a 224 Hz tone into A3 with pitch bend and a matching note-off, Intone
   pulls a sharp A3 to 220 Hz and snaps to C major, Ducker ducks >6 dB from the sidechain
   and pumps on the beat in ghost mode with the right latency.
 - CI and release builds additionally run [pluginval](https://github.com/Tracktion/pluginval)
@@ -148,14 +152,21 @@ LIFE are modulators: they only move ingredients that are already turned up.
 it ducks on every *Division* boundary locked to the host transport while it plays, free-runs at
 the host tempo when it stops, and uses *Free BPM* only when the host reports no tempo at all.
 
-**Verdant** is laid out in pages: OSC, MOD, FX, ARP/SEQ, BREED and BROWSE. To modulate
-anything, drag a source chip (MOD page, or the strip on each page) onto a knob, then drag the
-ring that appears to set the depth; the dot on the ring shows the live value. Drop an audio
-sample on BROWSE's *Drop a sample to match* zone to get a starting patch that sounds like it,
-or drop a WAV on an oscillator to use it as a wavetable. On BREED, pick two parents and hit
-*Breed* for eight children: click one to hear it, star it to keep it, *Undo* steps back a
-generation. The sound map on BROWSE places presets by how they sound: hover to audition,
-click to load, drag from one point to another to blend them.
+**Verdant** is laid out in pages: OSC, MOD, FX, ARP/SEQ, BREED and BROWSE, with a strip along
+the bottom that holds the modulation sources, a small keyboard and the *Alive* controls. To
+modulate anything, drag a source chip from that strip onto a knob, then drag up or down on the
+knob to set the depth (alt-drag adjusts it later; right-click for invert / remove); the
+coloured ring shows the depth and the dot the live value. When all 24 matrix slots are used,
+the knob says so instead of routing. Each oscillator card has *Paint* (draw a wavetable
+harmonic by harmonic, or load an image) and *Import* (pick a WAV, or drop one on the card).
+Drop an audio sample on BROWSE's *Drop a sample to match* zone to get a starting patch that
+sounds like it. On BREED, pick two parents and hit *Breed* for eight children: click one to
+hear it, star it to keep it, *Undo* steps back a generation. The sound map on BROWSE places
+presets by how they sound: hover to audition, click to load, drag from one point to another
+to blend them. *Alive* gives every note its own small variation from a seed: re-roll it for a
+new character, or lock it so preset changes keep the variation you like. Turn on *Pitch Snap
+to Key* (ARP/SEQ page, with the global key and scale) and pitch modulation steps through the
+scale instead of sliding.
 
 ## Licensing
 
