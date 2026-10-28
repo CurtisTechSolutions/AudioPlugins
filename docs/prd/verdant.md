@@ -257,7 +257,7 @@ behind a thin JUCE wrapper.
 
 ### 3.6 Presets
 
-- R24. Factory bank: 150+ presets built in code, in nine categories (Bass,
+- R24. Factory bank: 172 presets built in code, in nine categories (Bass,
   Lead, Pad, Pluck, Keys, FX, Texture, Sequence, Drums/Perc), each with tags
   and macro assignments, designed to show off the engine and the signature
   features; preset 0 is "Verdant Keys" and preset 1 "Glass Piano". The bank
@@ -869,7 +869,7 @@ content), and each is non-silent with peak ≤ 1. Basic Shapes morphs smoothly
 over ≥ 16 frames from a sine (frame 0) through triangle, saw and square to
 narrowing pulses.
 
-Presets: 150+ from `factoryPresets()` in nine categories (Bass, Lead, Pad,
+Presets: 172 from `factoryPresets()` in nine categories (Bass, Lead, Pad,
 Pluck, Keys, FX, Texture, Sequence, Drums/Perc), with tags and macro
 assignments, loudness-matched to ≈ −26 dBFS RMS (R24). Factory preset 0,
 "Verdant Keys", is what the render target draws; the host test loads preset
