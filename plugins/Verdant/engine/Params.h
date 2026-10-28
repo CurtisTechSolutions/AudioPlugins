@@ -54,8 +54,10 @@ inline constexpr int kNumModDestinations = 68;   // == numModDestinations()
 /** One entry per parameter, in table order. Instanced blocks are reached through the helpers below. */
 enum class P : uint16_t
 {
-    // Global
-    Voices, VoiceMode, Glide, BendRange, Master, Pitch, KeyRoot, KeyScale,
+    // Global. PitchSnap ("Pitch Snap to Key"): when on, each oscillator's pitch (note + bend + glide +
+    // global pitch + oct / semi + osc pitch, before fine / detune) is snapped to the nearest note of the
+    // global key / scale via ap::Scale::nearest.
+    Voices, VoiceMode, Glide, BendRange, Master, Pitch, KeyRoot, KeyScale, PitchSnap,
 
     // Osc A, Osc B: OscParam::Count entries each (oscParam())
     OscABase,
@@ -110,7 +112,7 @@ enum class P : uint16_t
 };
 
 inline constexpr int kNumParams = (int) P::Count;
-static_assert (kNumParams == 347, "CONTRACT §3: 347 parameters");
+static_assert (kNumParams == 348, "CONTRACT §3 (+ pitch_snap amendment): 348 parameters");
 
 const ParamInfo& info (P);                         // O(1) table lookup
 int indexOf (const char* id);                       // -1 if unknown

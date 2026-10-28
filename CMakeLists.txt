@@ -23,6 +23,7 @@ option(AP_BUILD_STANDALONE   "Also build Standalone apps (needs ALSA dev package
 option(AP_COPY_PLUGINS       "Copy built plugins into the user's plugin folder after build"  OFF)
 option(AP_LINUX_MINIMAL_X11  "Build without the optional X11 extension dev packages"         OFF)
 option(AP_ENABLE_LTO         "Link-time optimisation for plugins (slow links; on for releases)" ON)
+option(AP_BUILD_RENDER       "Build verdant_render (headless editor-page PNG renderer; needs AP_BUILD_PLUGINS)" ON)
 
 # Universal binaries on macOS unless the caller already chose architectures.
 if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
@@ -38,10 +39,14 @@ add_subdirectory(core)
 # Frisson's knob modules are plain C++ on top of core (no JUCE), built always.
 add_subdirectory(plugins/Frisson/modules)
 
+# Verdant's engine is plain C++ on top of core (no JUCE), built always.
+add_subdirectory(plugins/Verdant/engine)
+
 if(AP_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
     add_subdirectory(tests/frisson)
+    add_subdirectory(tests/verdant)
 endif()
 
 if(AP_BUILD_PLUGINS)
@@ -55,6 +60,7 @@ if(AP_BUILD_PLUGINS)
     add_subdirectory(plugins/Intone)
     add_subdirectory(plugins/Ducker)
     add_subdirectory(plugins/Frisson)
+    add_subdirectory(plugins/Verdant)
 
     if(AP_BUILD_TESTS)
         add_subdirectory(tests/host)

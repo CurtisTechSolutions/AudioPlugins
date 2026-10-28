@@ -1,7 +1,7 @@
 Curtis Tech Solutions — Audio Plugins (VST3)
 =============================================
 
-Contents: Strata, VoxNote, Intone, Ducker, Frisson (one .vst3 bundle each).
+Contents: Strata, VoxNote, Intone, Ducker, Frisson, Verdant (one .vst3 bundle each).
 
 Install by copying the .vst3 folders into your VST3 plugin folder, then
 rescan plugins in your DAW.

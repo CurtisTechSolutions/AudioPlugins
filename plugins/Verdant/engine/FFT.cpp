@@ -186,7 +186,4 @@ void FFT::realInverse (const float* re, const float* im, float* out) const noexc
     for (int i = 0; i < n; ++i) out[i] *= scale;
 }
 
-template void FFT::butterflies<1> (float*, float*, int, bool) const noexcept;
-template void FFT::butterflies<2> (float*, float*, int, bool) const noexcept;
-
 } // namespace verdant

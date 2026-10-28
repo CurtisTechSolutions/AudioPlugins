@@ -140,6 +140,7 @@ namespace
             t.flt     ("pitch",      "Pitch",      "Pitch",  g, -48.0f, 48.0f, 0.0f, 0.0f, "st", true);
             t.choice  ("key_root",   "Key",        "Key",    g, kKeys, 0);
             t.choice  ("key_scale",  "Scale",      "Scale",  g, kScales, 0);
+            t.toggle  ("pitch_snap", "Pitch Snap to Key", "Pitch Snap", g, false);
         }
 
         // ---- Osc A / Osc B
