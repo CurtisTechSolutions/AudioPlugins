@@ -10,6 +10,7 @@ buildable, separately tested module).
 | [intone.md](intone.md) | Intone — pitch correction + vocal chain | shipped v0.1 |
 | [ducker.md](ducker.md) | Ducker — sidechain + ghost ducking | shipped v0.1 |
 | [frisson.md](frisson.md) | Frisson — reward-system sound enhancer (umbrella) | built v0.1 (unit + host tests, pluginval 10) |
+| [humline.md](humline.md) | Humline — hum-to-track: VoxNote tracking + Intone snapping + Strata voice, MIDI out, take capture to .mid | in progress v0.1 (unit + host tests pass on Linux; CI + pluginval pending) |
 | [frisson-weight.md](frisson-weight.md) | WEIGHT knob | built v0.1 (unit + host tests, pluginval 10) |
 | [frisson-warmth.md](frisson-warmth.md) | WARMTH knob | built v0.1 (unit + host tests, pluginval 10) |
 | [frisson-focus.md](frisson-focus.md) | FOCUS knob | built v0.1 (unit + host tests, pluginval 10) |

@@ -9,7 +9,13 @@
 
 #include <array>
 
-namespace strata
+/**
+    The subtractive synth voice shared by Strata (which exposes every field as
+    a parameter) and Humline (which drives it from a hummed line). Plain JUCE
+    Synthesiser classes on top of the core oscillators and smoother; no
+    plugin-specific code lives here.
+*/
+namespace ap::synth
 {
 
 /** Parameter snapshot the processor refreshes once per block; voices read it. */
@@ -345,4 +351,4 @@ private:
     int limit = 16;
 };
 
-} // namespace strata
+} // namespace ap::synth

@@ -72,7 +72,7 @@ jobs:
           for z in AudioPlugins-*.zip; do
             # Normalise separators (7-Zip on Windows) and any ./ prefix before matching.
             listing=$(unzip -Z1 "$z" | sed -e 's#\\#/#g' -e 's#^\./##')
-            for f in Strata VoxNote Intone Ducker Frisson; do
+            for f in Strata VoxNote Intone Ducker Frisson Humline; do
               grep -q "^$f\.vst3/" <<< "$listing" || { echo "$z is missing $f.vst3"; exit 1; }
             done
             grep -qx "INSTALL.txt" <<< "$listing" || { echo "$z is missing INSTALL.txt"; exit 1; }

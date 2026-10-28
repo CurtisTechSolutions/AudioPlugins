@@ -3,12 +3,17 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 
-#include "SynthVoice.h"
+#include <ap_synth/SynthVoice.h>
 
 #include <atomic>
 
 namespace strata
 {
+
+using ap::synth::Settings;
+using ap::synth::Sound;
+using ap::synth::Voice;
+using ap::synth::PolySynth;
 
 namespace ids
 {

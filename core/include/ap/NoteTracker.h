@@ -33,6 +33,7 @@ public:
         float bendRangeSemis  = 2.0f;    // host pitch-bend range to scale against
         int   transpose       = 0;       // semitones added to the output note
         bool  snapToScale     = false;
+        float snapStrength    = 1.0f;    // 0 = chromatic, 1 = always on the scale (see quantizeNote)
         Scale scale {};
         float velocityMinDb   = -40.0f;  // level mapped to velocity 1
         float velocityMaxDb   = -6.0f;   // level mapped to velocity 127
@@ -83,7 +84,7 @@ public:
         ++voicedRun;
 
         const float midiFloat = f.midi + (float) params.transpose;
-        const int   nearest   = params.snapToScale ? params.scale.nearest (midiFloat)
+        const int   nearest   = params.snapToScale ? quantizeNote (midiFloat, params.scale, params.snapStrength)
                                                    : (int) std::lround (midiFloat);
 
         if (! playing)

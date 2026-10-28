@@ -1,12 +1,13 @@
 // End-to-end check of a built VST3: load it through JUCE's hosting code, run
 // audio/MIDI through processBlock, inspect the output.
 //
-//   VST3HostTest <path/to/Plugin.vst3> <Strata|VoxNote|Intone|Ducker>
+//   VST3HostTest <path/to/Plugin.vst3> <Strata|VoxNote|Intone|Ducker|Frisson|Humline>
 
 #include <juce_audio_processors_headless/juce_audio_processors_headless.h>
 
 #include <ap/Math.h>
 #include <ap/PitchDetector.h>
+#include <ap/Scales.h>
 
 #include <cmath>
 #include <cstdio>
@@ -367,6 +368,84 @@ void testDucker (Host& host)
     checkNear (host.plugin->getLatencySamples(), 240, 2, "5 ms lookahead reports 240 samples of latency");
 }
 
+void testHumline (Host& host)
+{
+    std::printf ("Humline checks\n");
+    check (host.plugin->getTotalNumInputChannels() >= 1, "instrument exposes an audio input bus");
+    const int latency = host.plugin->getLatencySamples();
+    check (latency >= (int) (kSampleRate * 0.010) && latency <= (int) (kSampleRate * 0.300), "latency between 10 and 300 ms");
+
+    host.setParam ("Key", "C");
+    host.setParam ("Scale", "Major");
+    host.setParam ("Snap", "100 %");
+    host.setParam ("Pitch Bend", "Off");
+    host.setParam ("Grid", "Off");
+    host.setParam ("Timbre", "Soft Lead");
+    host.setParam ("Glide", "0 ms");
+    host.setParam ("Dry Voice", "0 %");
+    host.setParam ("Synth Level", "-6 dB");
+    host.setParam ("Send MIDI", "On");
+    host.midiOut.clear();
+
+    // One second of a "voice" 31 cents above A3, then silence: A3 played by the synth, MIDI out.
+    std::vector<float> out;
+    for (int b = 0; b < (int) (kSampleRate / kBlock); ++b)
+        host.processBlock ([] (int, int, juce::int64 n) { return tone (224.0, n, 0.3, 6); }, &out);
+    check (host.outputIsFinite(), "synth output is finite");
+    check (rmsOf (out, 24000, out.size()) > 0.01, "humming makes the synth sound");
+    checkNear (measureHz (out, 30000), 220.0, 3.0, "the synth plays A3 (220 Hz), in tune");
+
+    std::vector<float> tail;
+    for (int b = 0; b < 200; ++b)
+        host.processBlock ([] (int, int, juce::int64) { return 0.0f; }, &tail);
+    check (rmsOf (tail, tail.size() - kBlock * 4, tail.size()) < 1.0e-3, "silence releases the note and the synth decays");
+
+    int noteOns = 0, noteOffs = 0, bends = 0, lastNote = -1;
+    for (const auto& m : host.midiOut)
+    {
+        if (m.isNoteOn()) { ++noteOns; lastNote = m.getNoteNumber(); }
+        else if (m.isNoteOff()) ++noteOffs;
+        else if (m.isPitchWheel()) ++bends;
+    }
+    check (noteOns >= 1 && noteOns <= 3, "a steady tone yields one note (no chatter)");
+    check (lastNote == 57, "224 Hz maps to A3 (MIDI 57)");
+    check (noteOffs == noteOns, "every note-on gets a note-off after silence");
+    check (bends == 0, "Pitch Bend off emits no bend");
+
+    // Send MIDI off: nothing reaches the host.
+    host.setParam ("Send MIDI", "Off");
+    host.midiOut.clear();
+    for (int b = 0; b < 60; ++b)
+        host.processBlock ([] (int, int, juce::int64 n) { return tone (224.0, n, 0.3, 6); });
+    for (int b = 0; b < 40; ++b)
+        host.processBlock ([] (int, int, juce::int64) { return 0.0f; });
+    check (host.midiOut.empty(), "Send MIDI off emits no MIDI");
+    host.setParam ("Send MIDI", "On");
+
+    // Dry voice only: the (delayed) input comes through at unity.
+    host.setParam ("Dry Voice", "100 %");
+    host.setParam ("Synth Level", "-60 dB");
+    out.clear();
+    for (int b = 0; b < 60; ++b)
+        host.processBlock ([] (int, int, juce::int64 n) { return tone (220.0, n, 0.3); }, &out);
+    const double dryLevel = rmsOf (out, out.size() - kBlock * 8, out.size());
+    checkNear (20.0 * std::log10 (dryLevel / (0.3 / std::sqrt (2.0))), 0.0, 3.0, "Dry Voice passes the input within 3 dB");
+    for (int b = 0; b < 40; ++b) host.processBlock ([] (int, int, juce::int64) { return 0.0f; });
+    host.setParam ("Dry Voice", "0 %");
+    host.setParam ("Synth Level", "-6 dB");
+
+    // Snapping: D#4 (311 Hz) is not in C major pentatonic; the played note must be.
+    host.setParam ("Scale", "Major Pentatonic");
+    host.midiOut.clear();
+    for (int b = 0; b < 60; ++b)
+        host.processBlock ([] (int, int, juce::int64 n) { return tone (311.13, n, 0.3, 6); });
+    for (int b = 0; b < 40; ++b)
+        host.processBlock ([] (int, int, juce::int64) { return 0.0f; });
+    int snapped = -1;
+    for (const auto& m : host.midiOut) if (m.isNoteOn()) snapped = m.getNoteNumber();
+    const bool inScale = snapped >= 0 && ap::Scale::fromType (ap::ScaleType::MajorPentatonic, 0).contains (snapped);
+    check (inScale && (snapped == 62 || snapped == 64), "Snap 100 % moves D#4 onto the C major pentatonic (D4 or E4)");
+}
 
 double bandRmsOf (const std::vector<float>& v, double lowHz, double highHz, size_t from)
 {
@@ -480,7 +559,7 @@ int main (int argc, char** argv)
 {
     if (argc < 3)
     {
-        std::printf ("usage: VST3HostTest <plugin.vst3> <Strata|VoxNote|Intone|Ducker|Frisson>\n");
+        std::printf ("usage: VST3HostTest <plugin.vst3> <Strata|VoxNote|Intone|Ducker|Frisson|Humline>\n");
         return 2;
     }
 
@@ -492,7 +571,7 @@ int main (int argc, char** argv)
     Host host;
     if (! host.load (path)) return 1;
 
-    if (which == "Ducker" || which == "Strata")
+    if (which == "Ducker" || which == "Strata" || which == "Humline")
         host.plugin->enableAllBuses();
 
     host.prepare();
@@ -503,6 +582,7 @@ int main (int argc, char** argv)
     else if (which == "Intone")  testIntone (host);
     else if (which == "Ducker")  testDucker (host);
     else if (which == "Frisson") testFrisson (host);
+    else if (which == "Humline") testHumline (host);
     else { std::printf ("unknown plugin tag %s\n", which.toRawUTF8()); return 2; }
 
     host.plugin->releaseResources();

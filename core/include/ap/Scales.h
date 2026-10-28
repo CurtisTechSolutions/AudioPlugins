@@ -137,4 +137,19 @@ struct Scale
     }
 };
 
+/**
+    Rounds a fractional MIDI value to a note, pulling it toward the nearest
+    scale note by `strength` first: 0 is plain chromatic rounding, 1 is
+    Scale::nearest, and in between an out-of-scale note survives only when the
+    value sits close to its centre.
+*/
+inline int quantizeNote (float midiFloat, const Scale& scale, float strength) noexcept
+{
+    strength = clamp (strength, 0.0f, 1.0f);
+    const int target = scale.nearest (midiFloat);
+    if (strength >= 1.0f) return target;
+    const float pulled = midiFloat + strength * ((float) target - midiFloat);
+    return (int) std::lround (pulled);
+}
+
 } // namespace ap

@@ -10,8 +10,9 @@ up to 4-voice unison), a sub and noise feed a multimode SVF with drive. It has
 mod matrix to learn. "Strata" is a **working title (placeholder)**: rename it
 via `PRODUCT_NAME` in `plugins/Strata/CMakeLists.txt` and the editor title.
 Keep `PLUGIN_CODE Strt` so saved sessions still find it. Format: VST3
-Instrument|Synth, MIDI in, stereo or mono out. Code: `plugins/Strata/`
-(`SynthVoice.h` holds the voice) on `core/include/ap/` Oscillator, Filters and
+Instrument|Synth, MIDI in, stereo or mono out. Code: `plugins/Strata/` with
+the voice in `common/include/ap_synth/SynthVoice.h` (shared with Humline,
+unchanged when it moved there) on `core/include/ap/` Oscillator, Filters and
 Math, plus JUCE Synthesiser, TPT SVF, Chorus, DelayLine and Reverb.
 
 ## 2. Who it is for and why

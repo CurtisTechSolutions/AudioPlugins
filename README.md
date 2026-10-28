@@ -1,6 +1,6 @@
 # Curtis Tech Solutions — Audio Plugins
 
-Five VST3 plugins built on a shared, framework-independent DSP core, with JUCE 9 doing
+Six VST3 plugins built on a shared, framework-independent DSP core, with JUCE 9 doing
 the plugin plumbing and UI. Windows and macOS binaries come out of GitHub Actions;
 Linux builds too and is used for validation.
 
@@ -11,6 +11,7 @@ Linux builds too and is used for validation.
 | **Intone** | Pitch correction to a key/scale (incl. 12-note custom scale) via formant-preserving PSOLA, retune speed + amount, plus a vocal chain: low cut, de-esser, compressor, body / presence / air EQ | Audio FX |
 | **Ducker** | Sidechain compressor with lookahead and SC low-cut, internal-detector mode, and a tempo-synced *ghost* ducking mode that needs no sidechain routing at all | Audio FX with sidechain input |
 | **Frisson** | Nine-knob sound enhancer where each knob is named for the listener response it targets — WEIGHT, WARMTH, RUSH, FOCUS, SHINE, SPACE, GROOVE, CHILLS, LIFE — plus a DOSE master and a loudness-matched MATCH bypass. Each knob is a separately tested module (see `docs/prd/`) | Audio FX (bus or track) |
+| **Humline** | Hum into the mic, hear a tuned synth line: VoxNote's tracking → key/scale snapping with adjustable strength → optional grid quantise to the host tempo → Strata's synth voice, with MIDI out for any other instrument, and a Capture button that turns the take into a draggable `.mid` file | Instrument with audio input and MIDI output |
 
 The names are working titles; rename in each `plugins/<Name>/CMakeLists.txt` (`PRODUCT_NAME`)
 and the editor title. Keep `PLUGIN_CODE` stable once a plugin has been used in sessions,
@@ -22,9 +23,11 @@ or hosts will treat the renamed build as a different plugin.
 core/            Header-only DSP (namespace ap), no JUCE dependency, unit-tested
   include/ap/    PitchDetector (YIN), PitchTracker, NoteTracker, PitchShifter (PSOLA),
                  Oscillator (PolyBLEP + LFO), Filters (biquad, smoother), Dynamics,
-                 Scales, Tempo (divisions + ghost-duck envelope), Math
+                 Scales, Tempo (divisions + ghost-duck envelope),
+                 NoteQuantizer (rhythm quantise, take capture), Math
 common/          JUCE-side shared code: LookAndFeel, generic parameter panels,
-                 meters/readouts, editor base, parameter-layout helpers
+                 meters/readouts, editor base, parameter-layout helpers, and the
+                 synth voice shared by Strata and Humline (ap_synth/)
 plugins/         One folder per plugin: PluginProcessor + PluginEditor + CMakeLists
 plugins/Frisson/modules/   Frisson's nine knob modules (JUCE-free, one PRD each in docs/prd/)
 docs/prd/        Product requirement documents for every plugin and every Frisson knob
@@ -92,13 +95,15 @@ Proper Developer-ID signing + notarization is a TODO before sharing with other p
 
 - `ap_tests` — core DSP unit tests (pitch detection accuracy, PSOLA pitch/level, note
   state machine, scales, filters, gain computer, tempo envelope, crossovers, saturation,
-  loudness meter, 1/f drift).
+  loudness meter, 1/f drift, snap strength, rhythm quantiser, take capture and the
+  hum-to-notes pipeline on a synthetic phrase).
 - `frisson_tests` — one test suite per Frisson knob, each asserting the numbers in its PRD.
 - `host_<Plugin>` — `VST3HostTest` loads the built `.vst3` through JUCE's headless VST3
   host and checks real behaviour: the synth plays C4 in tune and decays to silence,
   VoxNote turns a 224 Hz tone into A3 with pitch bend and a matching note-off, Intone
   pulls a sharp A3 to 220 Hz and snaps to C major, Ducker ducks >6 dB from the sidechain
-  and pumps on the beat in ghost mode with the right latency.
+  and pumps on the beat in ghost mode with the right latency, Humline turns a 224 Hz tone
+  into an in-tune A3 from its own synth with matching MIDI out and snaps to the scale.
 - CI and release builds additionally run [pluginval](https://github.com/Tracktion/pluginval)
   at strictness 10 on every plugin on every platform.
 
@@ -134,6 +139,17 @@ the whole recipe and doubles as the blend. Hit **MATCH** to hear the untouched s
 the processed loudness — if the processed version still sounds better at equal level, the
 recipe is doing something real. The header shows how many dB the processing added. CHILLS and
 LIFE are modulators: they only move ingredients that are already turned up.
+
+**Humline** is an *instrument with an audio input*. Put it on the mic track (Reaper, FL
+Studio) or on an instrument track with its audio input set to the mic track (Ableton:
+*Audio From* on the device; Bitwig: the device's audio-input selector). Pick a Key and
+Scale, hum, and the built-in synth plays the line in tune; *Grid* snaps note starts to the
+host tempo. Its MIDI output can drive any other instrument the same way VoxNote's can. Hit
+**CAPTURE** before a phrase, then *Save .mid…* or drag the handle straight into the
+arrangement; the take is back-dated by the plugin's latency so it lines up with the singing,
+and with *Grid* on it is quantised on export too. Latency is reported to the host (about
+24 ms + *Min Note* at 48 kHz on the Mid tracking preset), so recorded synth audio lines up
+on playback while live monitoring lags by that much.
 
 **Ducker** — in *External sidechain* mode route the kick into the plugin's sidechain input
 (the header shows a green dot once the host connects it). *Ghost* mode needs no routing:

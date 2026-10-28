@@ -55,6 +55,7 @@ if(AP_BUILD_PLUGINS)
     add_subdirectory(plugins/Intone)
     add_subdirectory(plugins/Ducker)
     add_subdirectory(plugins/Frisson)
+    add_subdirectory(plugins/Humline)
 
     if(AP_BUILD_TESTS)
         add_subdirectory(tests/host)
