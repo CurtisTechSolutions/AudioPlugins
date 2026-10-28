@@ -47,7 +47,7 @@ namespace fxdetail
 
         void setTarget (float t) noexcept
         {
-            if (t == target)
+            if (sameValue (t, target))
                 return;
             target = t;
             steps = rampLength;
@@ -76,9 +76,12 @@ namespace fxdetail
         float value() const noexcept        { return current; }
         float targetValue() const noexcept  { return target; }
         bool isRamping() const noexcept     { return steps > 0; }
-        bool isSettledAt (float v) const noexcept { return steps <= 0 && current == v; }
+        bool isSettledAt (float v) const noexcept { return steps <= 0 && sameValue (current, v); }
 
     private:
+        /** Exact equality (+0 == -0) without operator== on floats (-Wfloat-equal in the plugin build). */
+        static bool sameValue (float a, float b) noexcept { return ! (a < b) && ! (b < a); }
+
         float current = 0.0f, target = 0.0f, increment = 0.0f;
         int steps = 0, rampLength = 1;
     };

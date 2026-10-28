@@ -298,7 +298,7 @@ namespace
              .living (25.0f, 10.0f)
              .chorus (0.6f, 30.0f, 30.0f)
              .reverb (35.0f, 35.0f, 18.0f)
-             .master (-8.0f);
+             .master (2.5f);
             add (r);
         }
         {   // 1: glassy piano with a sympathetic body that rings with the last notes.
@@ -311,7 +311,7 @@ namespace
              .mod (MS::Env2, posA(), 30.0f)
              .sympathetic (35.0f, 4, 8, 60.0f, 65.0f)
              .reverb (55.0f, 45.0f, 22.0f)
-             .master (-9.0f);
+             .master (3.0f);
             add (r);
         }
         {   // 2: drawbar organ: organ table at two footages, LFO vibrato, phaser and chorus as a rotary stand-in.
@@ -324,7 +324,7 @@ namespace
              .mod (MS::Lfo1, pitchA(), 1.0f)
              .phaser (0.8f, 40.0f, 20.0f, 35.0f)
              .chorus (1.2f, 25.0f, 30.0f)
-             .master (-11.0f);
+             .master (2.5f);
             add (r);
         }
         {   // 3: mellow tine keys with a Tone macro on the filter.
@@ -338,7 +338,7 @@ namespace
              .mod (MS::Velocity, cutoff1(), 20.0f)
              .chorus (0.4f, 35.0f, 35.0f)
              .reverb (40.0f, 40.0f, 20.0f)
-             .master (-8.0f);
+             .master (1.0f);
             add (r);
         }
         {   // 4: felted upright: dark, soft attack, a gentle sympathetic body, EQ to tame the lows.
@@ -349,18 +349,18 @@ namespace
              .sympathetic (25.0f, 6, 6, 45.0f, 35.0f)
              .eq (-3.0f, 2.0f, 900.0f, -4.0f)
              .reverb (30.0f, 30.0f, 15.0f)
-             .master (-7.0f);
+             .master (-3.5f);
             add (r);
         }
         {   // 5: funky clav: narrow pulse into a resonant band-pass, Env 2 snap, compressed.
             Recipe r ("Pulse Clav", "Keys", { "funky", "percussive", "bright" });
             r.osc (0, Tbl::PulseWidth, 45.0f, 80.0f)
              .filter (0, Flt::BP12, 1000.0f, 12.0f, 15.0f, 70.0f)
-             .env (0, 0.5f, 350.0f, 20.0f, 120.0f)
+             .env (0, 0.5f, 400.0f, 30.0f, 120.0f)
              .env (1, 0.0f, 180.0f, 0.0f, 100.0f)
              .mod (MS::Env2, cutoff1(), 35.0f)
              .compressor (-20.0f, 4.0f, 4.0f)
-             .master (-8.0f);
+             .master (6.0f);
             add (r);
         }
 
@@ -373,7 +373,7 @@ namespace
              .env (0, 3.0f, 400.0f, 85.0f, 150.0f)
              .mono (VMode::Mono, 40.0f)
              .living (5.0f, 0.0f)
-             .master (-6.0f);
+             .master (-8.0f);
             add (r);
         }
         {   // 7: growl bass: tempo-synced LFO scanning the growl table, ladder filter, drive.
@@ -387,7 +387,7 @@ namespace
              .mod (MS::Lfo1, cutoff1(), 20.0f)
              .mono (VMode::Mono, 25.0f)
              .distortion (Dist::Tube, 40.0f, 5000.0f, 70.0f)
-             .master (-10.0f);
+             .master (-4.0f);
             add (r);
         }
         {   // 8: classic analog bass: two saws, ladder, filter envelope.
@@ -400,7 +400,7 @@ namespace
              .env (1, 0.0f, 260.0f, 10.0f, 150.0f)
              .mod (MS::Env2, cutoff1(), 45.0f)
              .mono (VMode::Legato, 30.0f)
-             .master (-9.0f);
+             .master (-4.5f);
             add (r);
         }
         {   // 9: reese: a wide unison saw stack, a slowly breathing filter.
@@ -412,7 +412,7 @@ namespace
              .lfo (1, Wave::Sine, 0.25f, Mode::Free)
              .mod (MS::Lfo2, cutoff1(), 15.0f)
              .mono (VMode::Mono, 20.0f)
-             .master (-10.0f);
+             .master (-6.0f);
             add (r);
         }
         {   // 10: bouncing ball opens the filter in a decelerating rhythm.
@@ -424,7 +424,7 @@ namespace
              .set (P::BallGravity, 60.0f).set (P::BallBounce, 75.0f)
              .mod (MS::Ball, cutoff1(), 45.0f)
              .mono (VMode::Mono, 0.0f)
-             .master (-8.0f);
+             .master (-6.5f);
             add (r);
         }
         {   // 11: FM thump: FM from the sub, Env 2 sweeps the FM table, compressed.
@@ -437,7 +437,7 @@ namespace
              .mod (MS::Env2, posA(), 50.0f)
              .mono (VMode::Mono, 0.0f)
              .compressor (-18.0f, 5.0f, 3.0f)
-             .master (-9.0f);
+             .master (-5.0f);
             add (r);
         }
         {   // 12: wobble with a drawn LFO; the Wobble macro speeds it up.
@@ -453,7 +453,7 @@ namespace
              .mod (MS::Macro1, lfoParam (0, LfoParam::Rate), 35.0f)
              .mono (VMode::Mono, 15.0f)
              .distortion (Dist::Soft, 25.0f, 6000.0f, 60.0f)
-             .master (-10.0f);
+             .master (-8.5f);
             add (r);
         }
 
@@ -466,7 +466,7 @@ namespace
              .env (0, 2.0f, 300.0f, 85.0f, 200.0f)
              .mono (VMode::Legato, 30.0f)
              .delay (ND::EighthDotted, 30.0f, 18.0f)
-             .master (-10.0f);
+             .master (-7.0f);
             add (r);
         }
         {   // 14: hard-sync scream: Env 2 sweeps the sync table, driven and delayed.
@@ -480,7 +480,7 @@ namespace
              .mono (VMode::Mono, 10.0f)
              .distortion (Dist::Hard, 30.0f, 7000.0f, 50.0f)
              .delay (ND::Eighth, 25.0f, 15.0f)
-             .master (-12.0f);
+             .master (-1.0f);
             add (r);
         }
         {   // 15: PWM hero lead: LFO-scanned pulse table, glide.
@@ -494,7 +494,7 @@ namespace
              .mod (MS::Lfo2, pitchA(), 1.0f)
              .mono (VMode::Legato, 70.0f)
              .delay (ND::QuarterDotted, 35.0f, 20.0f)
-             .master (-9.0f);
+             .master (-3.5f);
             add (r);
         }
         {   // 16: vowel lead: formant table through the formant filter; wheel opens the vowel.
@@ -508,7 +508,7 @@ namespace
              .mod (MS::Lfo2, cutoff1(), 6.0f)
              .mono (VMode::Legato, 50.0f)
              .reverb (40.0f, 40.0f, 18.0f)
-             .master (-9.0f);
+             .master (4.5f);
             add (r);
         }
         {   // 17: soft sine / triangle lead with a long glide.
@@ -534,7 +534,7 @@ namespace
              .living (40.0f, 45.0f)
              .chorus (0.5f, 45.0f, 40.0f)
              .reverb (65.0f, 60.0f, 30.0f)
-             .master (-9.0f);
+             .master (3.5f);
             add (r);
         }
         {   // 19: blooming noise table into choir, a slow Env 2 scan and lots of evolve.
@@ -548,7 +548,7 @@ namespace
              .mod (MS::Env2, posB(), 25.0f)
              .living (35.0f, 60.0f)
              .reverb (80.0f, 70.0f, 35.0f)
-             .master (-10.0f);
+             .master (-3.5f);
             add (r);
         }
         {   // 20: choir of glass: wide unison choir, a drawn LFO scanning the glass table.
@@ -561,7 +561,7 @@ namespace
              .customShape (2, { { 0.0f, 0.2f, 0.0f }, { 0.3f, 0.9f, 0.5f }, { 0.55f, 0.5f, 0.0f }, { 0.8f, 1.0f, -0.3f }, { 1.0f, 0.2f, 0.4f } })
              .mod (MS::Lfo3, posB(), 50.0f)
              .reverb (75.0f, 65.0f, 32.0f)
-             .master (-11.0f);
+             .master (-3.5f);
             add (r);
         }
         {   // 21: orbiting pad: the Orbit source walks position and cutoff in a slow ellipse.
@@ -575,7 +575,7 @@ namespace
              .living (35.0f, 50.0f)
              .chorus (0.3f, 40.0f, 35.0f)
              .reverb (70.0f, 60.0f, 30.0f)
-             .master (-6.0f);
+             .master (2.0f);
             add (r);
         }
         {   // 22: string ensemble from a wide saw stack.
@@ -587,7 +587,7 @@ namespace
              .mod (MS::Lfo1, pitchA(), 1.0f)
              .chorus (0.7f, 40.0f, 40.0f)
              .reverb (60.0f, 55.0f, 28.0f)
-             .master (-11.0f);
+             .master (1.0f);
             add (r);
         }
         {   // 23: dark matter: low growl table, resonant LP, S&H-stepped cutoff, phaser.
@@ -600,7 +600,7 @@ namespace
              .mod (MS::Lfo1, cutoff1(), 18.0f)
              .phaser (0.15f, 70.0f, 40.0f, 45.0f)
              .reverb (70.0f, 70.0f, 30.0f)
-             .master (-9.0f);
+             .master (-7.0f);
             add (r);
         }
         {   // 24: three macros: Morph (both positions), Air (reverb), Bright (cutoff).
@@ -615,7 +615,7 @@ namespace
              .mod (MS::Macro2, P::ReverbMix, 50.0f)
              .mod (MS::Macro3, cutoff1(), 50.0f)
              .reverb (65.0f, 60.0f, 15.0f)
-             .master (-10.0f);
+             .master (-3.5f);
             add (r);
         }
         {   // 25: breathing pad: a drawn inhale / exhale LFO on the filter, pink noise, flanger.
@@ -629,7 +629,7 @@ namespace
              .mod (MS::Lfo1, cutoff1(), 35.0f)
              .flanger (0.1f, 40.0f, 30.0f, 30.0f)
              .reverb (70.0f, 60.0f, 30.0f)
-             .master (-9.0f);
+             .master (1.5f);
             add (r);
         }
 
@@ -643,7 +643,7 @@ namespace
              .mod (MS::Env2, posA(), 70.0f)
              .delay (ND::EighthDotted, 35.0f, 25.0f)
              .reverb (45.0f, 45.0f, 18.0f)
-             .master (-8.0f);
+             .master (8.5f);
             add (r);
         }
         {   // 27: arpeggiated bell garden.
@@ -654,7 +654,7 @@ namespace
              .arp (ArpM::UpDown, 2, ND::Sixteenth, 60.0f)
              .delay (ND::Eighth, 30.0f, 20.0f)
              .reverb (40.0f, 40.0f, 15.0f)
-             .master (-8.0f);
+             .master (2.0f);
             add (r);
         }
         {   // 28: harp with a key-snapped sympathetic memory.
@@ -666,7 +666,7 @@ namespace
              .key (0, ST::Major)
              .sympathetic (50.0f, 6, 10, 65.0f, 55.0f).set (P::SympSnap, 1.0f)
              .reverb (50.0f, 50.0f, 20.0f)
-             .master (-9.0f);
+             .master (-4.0f);
             add (r);
         }
         {   // 29: springy pluck: the Spring source bends the pitch and the filter after each note.
@@ -678,7 +678,7 @@ namespace
              .mod (MS::Spring, pitchA(), 4.0f)
              .mod (MS::Spring, cutoff1(), 25.0f)
              .reverb (35.0f, 35.0f, 15.0f)
-             .master (-8.0f);
+             .master (3.0f);
             add (r);
         }
         {   // 30: sequenced pluck in C minor pentatonic (scale-degree steps).
@@ -693,7 +693,7 @@ namespace
                    { { 0, 100.0f, true, 50.0f }, { 2, 80.0f, true, 30.0f }, { 4, 90.0f, true, 70.0f }, { 1, 70.0f, true, 20.0f },
                      { 5, 100.0f, true, 90.0f }, { 3, 75.0f, true, 40.0f }, { 2, 85.0f, false, 50.0f }, { -1, 90.0f, true, 60.0f } })
              .delay (ND::EighthDotted, 30.0f, 18.0f)
-             .master (-8.0f);
+             .master (0.5f);
             add (r);
         }
         {   // 31: woody mallet: bell table through a positive comb.
@@ -703,7 +703,7 @@ namespace
              .filter (1, Flt::LP12, 4000.0f, 5.0f)
              .env (0, 0.5f, 380.0f, 0.0f, 250.0f)
              .reverb (30.0f, 30.0f, 15.0f)
-             .master (-8.0f);
+             .master (7.0f);
             add (r);
         }
 
@@ -718,7 +718,7 @@ namespace
              .mod (MS::Lfo1, cutoff1(), 70.0f)
              .delay (ND::QuarterDotted, 45.0f, 25.0f)
              .reverb (90.0f, 80.0f, 35.0f)
-             .master (-10.0f);
+             .master (-3.0f);
             add (r);
         }
         {   // 33: ball drop: pitch follows the bouncing ball down to rest.
@@ -729,7 +729,7 @@ namespace
              .set (P::BallGravity, 45.0f).set (P::BallBounce, 80.0f)
              .mod (MS::Ball, pitchA(), 15.0f)
              .reverb (55.0f, 50.0f, 25.0f)
-             .master (-9.0f);
+             .master (3.0f);
             add (r);
         }
         {   // 34: laser zap: fast Env 2 pitch dive on an FM table, crushed.
@@ -741,7 +741,7 @@ namespace
              .mod (MS::Env3, pitchA(), 40.0f)
              .mod (MS::Env3, posA(), 40.0f)
              .distortion (Dist::Crush, 35.0f, 8000.0f, 40.0f)
-             .master (-10.0f);
+             .master (10.0f);
             add (r);
         }
         {   // 35: 16-step machine: Seq Mod opens the filter per step, folded drive.
@@ -756,7 +756,7 @@ namespace
                      { 10, 100.0f, true, 95.0f }, { 0, 60.0f, true, 30.0f }, { 5, 80.0f, true, 55.0f }, { -12, 90.0f, true, 40.0f } })
              .mod (MS::SeqMod, cutoff1(), 45.0f)
              .distortion (Dist::Fold, 30.0f, 6000.0f, 45.0f)
-             .master (-8.0f);
+             .master (3.5f);
             add (r);
         }
         {   // 36: sparkling random arp in a high register.
@@ -767,7 +767,7 @@ namespace
              .arp (ArpM::Random, 3, ND::SixteenthTriplet, 50.0f)
              .delay (ND::EighthTriplet, 45.0f, 30.0f)
              .reverb (70.0f, 65.0f, 30.0f)
-             .master (-5.0f);
+             .master (8.0f);
             add (r);
         }
 
@@ -782,7 +782,7 @@ namespace
              .mod (MS::Lfo1, cutoff1(), 30.0f)
              .living (80.0f, 90.0f)
              .reverb (85.0f, 75.0f, 35.0f)
-             .master (-10.0f);
+             .master (-0.5f);
             add (r);
         }
         {   // 38: noise garden: band-passed bloom with S&H position steps and a phaser.
@@ -796,7 +796,7 @@ namespace
              .mod (MS::Lfo2, posB(), 40.0f)
              .phaser (0.2f, 60.0f, 35.0f, 40.0f)
              .reverb (75.0f, 65.0f, 32.0f)
-             .master (-7.0f);
+             .master (10.0f);
             add (r);
         }
         {   // 39: halo of sympathetic strings around a soft sine.
@@ -806,7 +806,7 @@ namespace
              .env (0, 80.0f, 1200.0f, 70.0f, 1500.0f)
              .sympathetic (70.0f, 8, 12, 75.0f, 60.0f)
              .reverb (70.0f, 65.0f, 28.0f)
-             .master (-11.0f);
+             .master (-19.0f);
             add (r);
         }
         {   // 40: mirror shards: mirrored glass, a drawn LFO on the warp, high-passed and flanged.
@@ -820,7 +820,7 @@ namespace
              .mod (MS::Lfo4, warpA(), 35.0f)
              .flanger (0.3f, 55.0f, 50.0f, 40.0f)
              .reverb (55.0f, 55.0f, 22.0f)
-             .master (-11.0f);
+             .master (6.0f);
             add (r);
         }
         {   // 41: tidal pad-texture: aftertouch and wheel play the bloom; a performance texture.
@@ -834,7 +834,7 @@ namespace
              .living (45.0f, 55.0f)
              .chorus (0.25f, 50.0f, 35.0f)
              .reverb (80.0f, 70.0f, 33.0f)
-             .master (-11.0f);
+             .master (1.0f);
             add (r);
         }
 

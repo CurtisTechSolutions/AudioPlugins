@@ -179,7 +179,11 @@ AP_TEST (presets_feature_coverage)
 AP_TEST (presets_render_non_silent_and_unclipped)
 {
     const auto& bank = factoryPresets();
-    int silent = 0, clipped = 0, nonFinite = 0;
+    // The bank is loudness-matched (about -26 dBFS RMS on this C3 preview, single-note peaks <= 0.7):
+    // every preset must sit between -30 dBFS RMS and a 0.9 peak, far from both silence and clipping.
+    constexpr double kMinRms = 0.0316;   // -30 dBFS
+    constexpr float kMaxPeak = 0.9f;
+    int silent = 0, clipped = 0, nonFinite = 0, quiet = 0, hot = 0;
     double minRms = 1.0e9;
     float maxPeak = 0.0f;
     for (size_t i = 0; i < bank.size(); ++i)
@@ -200,9 +204,13 @@ AP_TEST (presets_render_non_silent_and_unclipped)
         if (! finite) ++nonFinite;
         if (! (rms > 0.005)) { ++silent; std::printf ("    silent: %s (rms %.5f)\n", bank[i].name.c_str(), rms); }
         if (! (peak < 1.0f)) { ++clipped; std::printf ("    clipped: %s (peak %.3f)\n", bank[i].name.c_str(), (double) peak); }
+        if (! (rms >= kMinRms)) { ++quiet; std::printf ("    under -30 dBFS: %s (rms %.4f)\n", bank[i].name.c_str(), rms); }
+        if (! (peak <= kMaxPeak)) { ++hot; std::printf ("    peak over 0.9: %s (peak %.3f)\n", bank[i].name.c_str(), (double) peak); }
     }
     std::printf ("    %zu presets: quietest RMS %.4f, loudest peak %.3f\n", bank.size(), minRms, (double) maxPeak);
     CHECK_EQ (nonFinite, 0);
     CHECK_EQ (silent, 0);
     CHECK_EQ (clipped, 0);
+    CHECK_EQ (quiet, 0);
+    CHECK_EQ (hot, 0);
 }
