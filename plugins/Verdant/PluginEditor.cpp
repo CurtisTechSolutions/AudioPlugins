@@ -18,17 +18,6 @@ namespace
 
     juce::Colour col (juce::uint32 c) { return juce::Colour (c); }
 
-    /** Plays a note through the processor when it offers auditionNote (int note, float velocity; 0 = off);
-        otherwise the on-screen keyboard is a visual aid only. */
-    template <typename Proc>
-    void auditionNote (Proc& p, int note, float velocity)
-    {
-        if constexpr (requires { p.auditionNote (note, velocity); })
-            p.auditionNote (note, velocity);
-        else
-            juce::ignoreUnused (p, note, velocity);
-    }
-
     juce::String seedText (uint32_t seed)
     {
         return juce::String::toHexString ((juce::int64) seed).paddedLeft ('0', 8).toUpperCase();
@@ -269,7 +258,12 @@ public:
     {
         addAndMakeVisible (sources);
         addAndMakeVisible (keyboard);
-        keyboard.onNote = [this] (int note, bool on) { auditionNote (processor, note, on ? 0.8f : 0.0f); };
+        keyboard.onNote = [this] (int note, bool on)
+        {
+            // Held while the mouse is down (the processor's held-audition queue).
+            if (on) processor.auditionNoteOn (note, 0.8f);
+            else    processor.auditionNoteOff (note);
+        };
 
         alive.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         alive.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);

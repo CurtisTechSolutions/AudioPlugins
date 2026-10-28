@@ -132,6 +132,11 @@ public:
         note is merged into the next audio block, so it sounds only while the host is processing. */
     void auditionNote (int midiNote, float seconds, float velocity = 0.8f);
 
+    /** Held audition (the on-screen keyboard): the note sounds until auditionNoteOff (or the next audition).
+        Message thread; same queue as auditionNote. */
+    void auditionNoteOn (int midiNote, float velocity = 0.8f);
+    void auditionNoteOff (int midiNote);
+
     //==============================================================================
     // Breeding (BREED page). Parents default to the init patch.
     struct Breeding
@@ -186,11 +191,11 @@ private:
     int preparedBlock = 512;              // the engine's prepared maximum block (Engine() prepares 512)
 
     // Audition: message thread -> audio thread (single producer / single consumer).
-    struct AuditionRequest { int note; float velocity; float seconds; };
+    struct AuditionRequest { int note; float velocity; float seconds; };   // seconds < 0: held until a note-off; velocity 0: note-off
     juce::AbstractFifo auditionFifo { kAuditionQueueSize };
     std::array<AuditionRequest, kAuditionQueueSize> auditionQueue {};
     int auditionPlaying = -1;             // audio thread: the sounding audition note
-    juce::int64 auditionRemaining = 0;    // audio thread: samples until its note-off
+    juce::int64 auditionRemaining = 0;    // audio thread: samples until its note-off (-1 = held)
 
     mutable juce::CriticalSection extrasLock;   // never taken on the audio thread
     verdant::Patch extras;                      // non-parameter fields (values unused)

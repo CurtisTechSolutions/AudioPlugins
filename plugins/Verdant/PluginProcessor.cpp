@@ -240,16 +240,28 @@ int Processor::collectMidi (const juce::MidiBuffer& midi, int numSamples) noexce
             midiEvents[(size_t) count++] = MidiEvent { type, offset, channel, note, value, cc };
     };
 
-    // A pending audition starts at the top of the block (only the newest request counts).
+    // Pending auditions start at the top of the block, in request order (a new note ends the previous one;
+    // a note-off request, velocity 0, ends a held note).
     if (const int ready = auditionFifo.getNumReady(); ready > 0)
     {
-        AuditionRequest request {};
-        auditionFifo.read (ready).forEach ([this, &request] (int index) { request = auditionQueue[(size_t) index]; });
-        if (auditionPlaying >= 0)
-            push (MidiEvent::Type::NoteOff, 0, 1, auditionPlaying, 0.0f, 0);
-        push (MidiEvent::Type::NoteOn, 0, 1, request.note, request.velocity, 0);
-        auditionPlaying = request.note;
-        auditionRemaining = (juce::int64) std::llround ((double) request.seconds * getSampleRate());
+        auditionFifo.read (ready).forEach ([this, &push] (int index)
+        {
+            const auto request = auditionQueue[(size_t) index];
+            if (request.velocity <= 0.0f)
+            {
+                if (auditionPlaying == request.note)
+                {
+                    push (MidiEvent::Type::NoteOff, 0, 1, auditionPlaying, 0.0f, 0);
+                    auditionPlaying = -1;
+                }
+                return;
+            }
+            if (auditionPlaying >= 0)
+                push (MidiEvent::Type::NoteOff, 0, 1, auditionPlaying, 0.0f, 0);
+            push (MidiEvent::Type::NoteOn, 0, 1, request.note, request.velocity, 0);
+            auditionPlaying = request.note;
+            auditionRemaining = request.seconds < 0.0f ? -1 : (juce::int64) std::llround ((double) request.seconds * getSampleRate());
+        });
     }
 
     // Host MIDI, decoded straight from the raw bytes (MidiMessage could allocate for long sysex).
@@ -304,8 +316,8 @@ int Processor::collectMidi (const juce::MidiBuffer& midi, int numSamples) noexce
         }
     }
 
-    // The audition's note-off, inserted in order, once its time is up.
-    if (auditionPlaying >= 0)
+    // The audition's note-off, inserted in order, once its time is up (held notes wait for their note-off request).
+    if (auditionPlaying >= 0 && auditionRemaining >= 0)
     {
         if (auditionRemaining < (juce::int64) numSamples)
         {
@@ -766,6 +778,19 @@ void Processor::auditionNote (int midiNote, float seconds, float velocity)
     const AuditionRequest request { juce::jlimit (0, 127, midiNote),
                                     std::isfinite (velocity) ? juce::jlimit (0.01f, 1.0f, velocity) : 0.8f,
                                     std::isfinite (seconds) ? juce::jlimit (0.01f, 10.0f, seconds) : 0.4f };
+    auditionFifo.write (1).forEach ([this, &request] (int index) { auditionQueue[(size_t) index] = request; });
+}
+
+void Processor::auditionNoteOn (int midiNote, float velocity)
+{
+    const AuditionRequest request { juce::jlimit (0, 127, midiNote),
+                                    std::isfinite (velocity) ? juce::jlimit (0.01f, 1.0f, velocity) : 0.8f, -1.0f };
+    auditionFifo.write (1).forEach ([this, &request] (int index) { auditionQueue[(size_t) index] = request; });
+}
+
+void Processor::auditionNoteOff (int midiNote)
+{
+    const AuditionRequest request { juce::jlimit (0, 127, midiNote), 0.0f, 0.0f };
     auditionFifo.write (1).forEach ([this, &request] (int index) { auditionQueue[(size_t) index] = request; });
 }
 
