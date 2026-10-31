@@ -64,11 +64,15 @@ namespace
     bool isMono (const Patch& p) { return val (p, P::VoiceMode) > 0.5f; }
     bool isPercussive (const Patch& p) { return p.category == "Pluck" || p.category == "Drums/Perc"; }
 
-    // Expected size of each category, in factoryCategories() order.
+    // Expected size of each category, in factoryCategories() order: the original bank plus three per
+    // category from the first expansion.
     const std::map<std::string, int> kCategoryCounts {
-        { "Bass", 25 }, { "Lead", 25 }, { "Pad", 25 }, { "Pluck", 18 }, { "Keys", 18 },
-        { "FX", 15 }, { "Texture", 18 }, { "Sequence", 14 }, { "Drums/Perc", 14 }
+        { "Bass", 28 }, { "Lead", 28 }, { "Pad", 28 }, { "Pluck", 21 }, { "Keys", 21 },
+        { "FX", 18 }, { "Texture", 21 }, { "Sequence", 17 }, { "Drums/Perc", 17 }
     };
+
+    // Host program numbers are frozen: the original bank fills 0..171, expansions append after it.
+    constexpr int kOriginalBankSize = 172;
 
     double toDb (double x) { return 20.0 * std::log10 (std::max (x, 1.0e-9)); }
 
@@ -147,7 +151,7 @@ namespace
 AP_TEST (presets_bank_shape)
 {
     const auto& bank = factoryPresets();
-    CHECK ((int) bank.size() >= 150 && (int) bank.size() <= 180);
+    CHECK ((int) bank.size() >= kOriginalBankSize && (int) bank.size() <= 240);
     CHECK (&bank == &factoryPresets());   // built once
     CHECK (bank.size() >= 2 && bank[0].name == "Verdant Keys" && bank[1].name == "Glass Piano");   // host programs 0 and 1
 
@@ -162,7 +166,7 @@ AP_TEST (presets_bank_shape)
     std::set<std::string> names;
     std::map<std::string, int> counts;
     int lastCategory = 0, badOrder = 0, badTags = 0, badNames = 0, macroPlayable = 0, unnamedMacroRoutes = 0;
-    int aliveInRange = 0, flatPadsOrTextures = 0;
+    int aliveInRange = 0, flatPadsOrTextures = 0, deadRoutes = 0;
     for (size_t i = 0; i < bank.size(); ++i)
     {
         const auto& p = bank[i];
@@ -171,8 +175,10 @@ AP_TEST (presets_bank_shape)
         ++counts[p.category];
         const auto cat = std::find (known.begin(), known.end(), p.category);
         CHECK (cat != known.end());
-        // After the two openers, the bank runs category by category in browser order.
+        // After the two openers, the original bank runs category by category in browser order, and
+        // so does each expansion after it.
         const int catIndex = (int) (cat - known.begin());
+        if (i == (size_t) kOriginalBankSize) lastCategory = 0;
         if (i >= 2)
         {
             if (catIndex < lastCategory) ++badOrder;
@@ -198,6 +204,15 @@ AP_TEST (presets_bank_shape)
         }
         if (playable) ++macroPlayable;
 
+        // Every matrix slot with a source points at a modulatable destination (else it does nothing).
+        for (int slot = 0; slot < kModSlots; ++slot)
+            if ((ModSource) (int) val (p, modSrc (slot)) != ModSource::None && val (p, modAmt (slot)) != 0.0f
+                && ! ((int) val (p, modDst (slot)) > 0))
+            {
+                ++deadRoutes;
+                std::printf ("    %s: mod slot %d has no destination\n", p.name.c_str(), slot + 1);
+            }
+
         const float alive = val (p, P::Alive);
         if (alive >= 10.0f && alive <= 35.0f) ++aliveInRange;
         if ((p.category == "Pad" || p.category == "Texture") && ! (val (p, P::Evolve) >= 20.0f)) ++flatPadsOrTextures;
@@ -206,6 +221,7 @@ AP_TEST (presets_bank_shape)
     CHECK_EQ (badNames, 0);
     CHECK_EQ (badOrder, 0);
     CHECK_EQ (badTags, 0);
+    CHECK_EQ (deadRoutes, 0);
     for (const auto& [category, expected] : kCategoryCounts)
         CHECK_EQ (counts[category], expected);
     CHECK_EQ ((int) counts.size(), (int) known.size());

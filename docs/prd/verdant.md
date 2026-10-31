@@ -257,7 +257,7 @@ behind a thin JUCE wrapper.
 
 ### 3.6 Presets
 
-- R24. Factory bank: 172 presets built in code, in nine categories (Bass,
+- R24. Factory bank: 199 presets built in code, in nine categories (Bass,
   Lead, Pad, Pluck, Keys, FX, Texture, Sequence, Drums/Perc), each with tags
   and macro assignments, designed to show off the engine and the signature
   features; preset 0 is "Verdant Keys" and preset 1 "Glass Piano". The bank
@@ -265,8 +265,13 @@ behind a thin JUCE wrapper.
   sits near −26 dBFS RMS, and every preset renders non-silent, at least
   −30 dBFS RMS and with a peak ≤ 0.9. They are listed first and are the
   host's program list (`getNumPrograms()` = the number of factory presets),
-  so the order is frozen: new presets go at the end. The plugin opens on the
-  init patch.
+  so the order is frozen: new presets go at the end. The original bank (172
+  presets, programs 0-171) runs category by category in browser order after
+  the two openers; the first expansion (programs 172-198,
+  `FactoryPresets_Expansion.cpp`) adds three per category, again in browser
+  order. The browser groups by category, so an expansion never shows out of
+  place. Every matrix slot with a source has a modulatable destination. The
+  plugin opens on the init patch.
 - R25. User presets are `.vrdt` files holding the state XML (R35) in
   `<userDocuments>/Curtis Tech Solutions/Verdant/Presets/<Category>/<Name>.vrdt`.
   Save asks for name, category, tags and author. Init loads the init patch
@@ -869,7 +874,7 @@ content), and each is non-silent with peak ≤ 1. Basic Shapes morphs smoothly
 over ≥ 16 frames from a sine (frame 0) through triangle, saw and square to
 narrowing pulses.
 
-Presets: 172 from `factoryPresets()` in nine categories (Bass, Lead, Pad,
+Presets: 199 from `factoryPresets()` (172 original plus a 27-preset expansion) in nine categories (Bass, Lead, Pad,
 Pluck, Keys, FX, Texture, Sequence, Drums/Perc), with tags and macro
 assignments, loudness-matched to ≈ −26 dBFS RMS (R24). Factory preset 0,
 "Verdant Keys", is what the render target draws; the host test loads preset
@@ -1016,7 +1021,8 @@ knob used everywhere.
     extras, locale independence, unknown records skipped, malformed ones
     rejected (R35).
   - Factory presets: bank shape (categories, tags, unique names, preset 0
-    "Verdant Keys"), values in range, round trip, feature coverage, and
+    "Verdant Keys", category order within the original bank and within the
+    expansion, no matrix slot without a destination), values in range, round trip, feature coverage, and
     every preset non-silent, ≥ −30 dBFS RMS and peak ≤ 0.9 (R24).
   - Sound map: features, determinism, x rising with brightness, the whole
     factory bank, and `blendPatches` end points (R34).

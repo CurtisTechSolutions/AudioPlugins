@@ -386,5 +386,6 @@ void addFxPresets (std::vector<Patch>&);
 void addTexturePresets (std::vector<Patch>&);
 void addSequencePresets (std::vector<Patch>&);
 void addDrumPresets (std::vector<Patch>&);
+void addExpansionPresets (std::vector<Patch>&);   // after the original 172: three per category, browser order
 
 } // namespace verdant::factory
