@@ -182,6 +182,10 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     float minGain = 1.0f;
     float scPeak = 0.0f;
 
+    float inPeak = 0.0f;
+    for (int ch = 0; ch < numCh; ++ch)
+        inPeak = juce::jmax (inPeak, main.getMagnitude (ch, 0, numSamples));
+
     for (int i = 0; i < numSamples; ++i)
     {
         // --- Detector input
@@ -241,8 +245,19 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     if (! transportPlaying)
         freeRunBeats += (double) numSamples * beatsPerSample;
 
-    gainReductionDb.store (ap::gainToDb (minGain), std::memory_order_relaxed);
+    const float grDb = ap::gainToDb (minGain);
+    gainReductionDb.store (grDb, std::memory_order_relaxed);
     sidechainLevel.store (scPeak, std::memory_order_relaxed);
+    // Racing with the editor's swap only ever loses one block's peak, which is fine for a display.
+    if (grDb < grHoldDb.load (std::memory_order_relaxed)) grHoldDb.store (grDb, std::memory_order_relaxed);
+    if (inPeak > inputHold.load (std::memory_order_relaxed)) inputHold.store (inPeak, std::memory_order_relaxed);
+    bpmInUse.store ((float) bpm, std::memory_order_relaxed);
+    {
+        const double beats = ap::noteDivisionBeats (division);
+        const double beat = transportPlaying ? ppq + (double) numSamples * beatsPerSample : freeRunBeats;
+        double phase = beats > 0.0 ? beat / beats - offset : 0.0;
+        ghostPhase.store ((float) (phase - std::floor (phase)), std::memory_order_relaxed);
+    }
 }
 
 juce::AudioProcessorEditor* Processor::createEditor()

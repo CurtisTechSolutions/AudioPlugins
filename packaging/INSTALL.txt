@@ -15,5 +15,11 @@ clear the download quarantine once after copying:
 
   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/*.vst3
 
-VoxNote outputs MIDI from an audio effect: works in Ableton, Reaper, Bitwig
-and FL Studio; Logic Pro cannot route MIDI out of audio effects.
+VoxNote outputs MIDI from an audio effect. In Ableton, Reaper and Bitwig route
+it to an instrument as host MIDI. In FL Studio (whose VST3 wrapper often drops
+an effect's MIDI) and Logic / GarageBand (which can't route it), use VoxNote's
+"MIDI out" card to send the notes straight to a MIDI port instead:
+  Windows      : create a port in loopMIDI (tobias-erichsen.de), pick it in
+                 VoxNote, enable it as an input in FL's Options > MIDI Settings
+                 and select the instrument's channel.
+  macOS / Linux: pick "VoxNote (virtual port)" and use it as a MIDI input.

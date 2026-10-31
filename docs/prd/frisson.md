@@ -104,11 +104,13 @@ Effective depth of a knob = knob × dose. Blend: `out = dry + (wet − dry) × d
 
 ### 4.4 Editor
 
-3×3 grid of the nine knobs (rows: WEIGHT WARMTH RUSH / FOCUS SHINE SPACE /
-GROOVE CHILLS LIFE), each with an activity ring driven by `Module::activity()`.
-DOSE is a large knob to the right with MATCH beneath it and the loudness delta
-readout ("processing adds +2.3 dB"). An "Advanced" toggle reveals the advanced
-parameters as a standard ParamSection row. Accent colour: amber.
+`ap::ui::EditorBase`, 1000 × 700 base (resizable 70–200 %). A 3×3 grid of
+the nine knobs (rows: WEIGHT WARMTH RUSH / FOCUS SHINE SPACE / GROOVE CHILLS
+LIFE), each a card with its tagline and an activity ring driven by
+`Module::activity()`. DOSE is a large knob to the right; below it the A / B
+card holds MATCH, the loudness delta ("+2.3 dB added by processing") and the
+output meter, and an Advanced card shows the advanced parameters. Accent
+colour: amber.
 
 ### 4.5 Metering
 

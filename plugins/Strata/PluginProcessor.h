@@ -1,6 +1,11 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+
+#include <ap/SpscQueue.h>
+
+#include <array>
+#include <atomic>
 #include <juce_dsp/juce_dsp.h>
 
 #include "SynthVoice.h"
@@ -84,9 +89,24 @@ public:
 
     std::atomic<float> outputLevel { 0.0f };
 
+    /** The editor's keyboard (message thread): queued, played at the start of the next block on channel 1. */
+    void keyboardNote (int note, bool on) noexcept
+    {
+        keyboardEvents.push ((juce::uint16) ((on ? 0x80 : 0) | juce::jlimit (0, 127, note)));
+    }
+
+    /** Whether a note is held right now (from the host or the editor's keyboard). */
+    bool isNoteHeld (int note) const noexcept
+    {
+        return note >= 0 && note < 128 && ((held[(size_t) note >> 5].load (std::memory_order_relaxed) >> (note & 31)) & 1u) != 0;
+    }
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void updateSettings();
+
+    ap::SpscQueue<juce::uint16, 256> keyboardEvents;
+    std::array<std::atomic<juce::uint32>, 4> held {};
 
     Settings settings;
     PolySynth synth;

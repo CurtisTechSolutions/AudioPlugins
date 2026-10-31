@@ -1,6 +1,6 @@
 # VoxNote — PRD
 
-Status: shipped v0.1 (VST3, Windows/macOS/Linux)
+Status: shipped v0.2 (VST3, Windows/macOS/Linux)
 
 ## 1. Summary
 
@@ -68,14 +68,31 @@ Gate and Sensitivity.
   High / Mid / Low. A note-on therefore lands that much, plus the onset time,
   after the sung onset (the README says ~20–40 ms). Recorded MIDI may need
   nudging earlier.
-- R12. **MIDI output from an audio effect.** It reaches an instrument only in
-  hosts that route MIDI out of an effect (Ableton "MIDI From", Reaper,
-  Bitwig, FL Studio). VST3-only by design: Logic Pro's AU effects cannot emit
-  MIDI, so VoxNote cannot drive instruments in Logic.
+- R12. **MIDI output from an audio effect.** Host MIDI reaches an instrument
+  only in hosts that route MIDI out of an effect (Ableton "MIDI From",
+  Reaper, Bitwig). FL Studio's VST3 wrapper often drops it (users reported
+  "no MIDI at all"), and Logic / GarageBand cannot route it; R14 covers those.
 - R13. Output is finite for any input, with no allocation after
   `prepareToPlay` (frame callbacks run inline). State is APVTS XML with root
   `VOXNOTE`, and parameter IDs and names are frozen. Passes `host_VoxNote` and
   pluginval strictness 10 on all three OSes.
+- R14. **Direct to a MIDI port.** Every event that goes to the host also goes
+  to an optional system MIDI port (`MidiPortOut`), chosen in the editor's
+  *MIDI out* card: any MIDI output on the system (a loopMIDI port on
+  Windows, an IAC bus on macOS) or, on macOS / Linux, VoxNote's own virtual
+  port "VoxNote". The audio thread only pushes to a wait-free queue
+  (`ap::SpscQueue`, 1024 events, dropped when full); a high-priority sender
+  thread, running only while a port is open, sends each event at its block
+  start time + sample offset, so spacing within a block is kept. Before a
+  port is closed or changed every note it started is turned off. Offline
+  (non-real-time) renders do not send to the port. The choice is not a
+  parameter: it is saved as the state-tree properties `midiPortId` /
+  `midiPortName` and reopened on the message thread after
+  `setStateInformation` (by name when the ID changed between sessions; shown
+  as "(not found)" when the port is missing).
+- R15. **Bypass.** While the host bypasses VoxNote audio passes through, no
+  MIDI is produced, and a note sounding at the moment of bypass gets its
+  note-off (and the bend is re-centred), on the host and on the port.
 
 ## 4. Design
 
@@ -117,9 +134,17 @@ retrigger hold equals the onset count.
 | `monitor` | Monitor Synth | on/off | off | |
 | `monitor_level` | Monitor Level | −40 – 0 dB | −12 | |
 
-**Editor:** `EditorBase`, 560 px, 1 column, green `#34C759`, with a
-PitchReadout (note, cents, Hz) in the header and an input meter on Detection.
-Sections: Detection, Notes, Pitch Bend, Velocity, Output.
+**Editor:** `ap::ui::EditorBase`, 1040 × 640 base (resizable 70–200 %),
+green `#34C759`. Header: tuner read-out (note, cents needle, Hz) and a
+*MIDI out* activity light. A pitch display (the last ~6 s as a piano roll:
+the detected pitch as a line, bright where it passes gate and confidence,
+and the sent notes as labelled bars; scale rows tinted when Snap is on)
+sits next to Detection, which has the input RMS against the Gate line and a
+one-line diagnosis (waiting for input / below the gate / no steady pitch /
+sending E4). Cards: Notes, Snap to scale (header switch), Pitch bend (header
+switch), Velocity (Fixed vs. Min/Max dim with *Dynamic*), Output, MIDI out
+(R14 port choice, status and setup hints). The processor feeds the display
+through `uiFrames`, an `SpscQueue` of one `UiFrame` per hop.
 
 ## 5. Acceptance tests
 
@@ -129,7 +154,10 @@ Sections: Detection, Notes, Pitch Bend, Velocity, Output.
     40 silent blocks. Checks: MIDI appears while the tone plays; 1–3
     note-ons, so no chatter (R3, R4); the last note is 57 (A3) (R6);
     note-offs equal note-ons (R8); at least one bend (R4); output is finite.
-    Audio Thru Off with a 220 Hz tone gives RMS < 1e-6 (R10).
+    Audio Thru Off with a 220 Hz tone gives RMS < 1e-6 (R10). Bypassing
+    while a note sounds sends its note-off, no MIDI comes out while bypassed,
+    tracking resumes afterwards (R15); `reset()` mid-note is followed by All
+    Notes Off (R9).
 - `ap_tests`:
   - `test_pitch.cpp` (R1, R2): `yin_detects_pure_tones` (82–1047 Hz within
     0.5 %), `yin_detects_harmonic_tones_with_noise`, `yin_rejects_noise`,
@@ -141,8 +169,11 @@ Sections: Detection, Notes, Pitch Bend, Velocity, Output.
     `note_tracker_pitch_bend_and_scale_snap` (+0.5 st gives bend 0.25),
     `note_tracker_velocity_mapping` (−10/−25/−40 dB give 127/64/1).
   - `test_scales.cpp`: `scale_membership`, `scale_nearest` (R6).
-- Missing, add in v0.2: All Notes Off after reset (R9), the monitor synth,
-  transpose, channel, and mono in / stereo out.
+- `ap_tests`: `spsc_queue_*` (order, full-queue drop, wrap-around, two
+  threads) for the queue behind R14 and the display.
+- Not automated: the port itself (CI runners have no MIDI devices; checked
+  by hand with loopMIDI / IAC), the monitor synth, transpose, channel, and
+  mono in / stereo out.
 
 ## 6. Out of scope / later
 
@@ -151,10 +182,10 @@ Sections: Detection, Notes, Pitch Bend, Velocity, Output.
   clip" mode.
 - A custom scale (Intone's 12 toggles), key/scale learn, and note-length
   quantise.
-- A Logic-compatible variant, such as an AU MIDI FX or a standalone bridge
-  (R12). Also AU/CLAP in general, and Developer-ID signing and notarization.
-- Known v0.1 gaps:
-  - Changing MIDI Channel mid-note sends that note's note-off on the new
-    channel, so the old note hangs until the next reset.
+- An AU MIDI FX variant for Logic (R14's port already works there), AU/CLAP
+  in general, and Developer-ID signing and notarization.
+- Known gaps:
   - Switching Tracking mid-phrase analyses the new tracker's stale buffer for
     up to one window.
+  - Windows has no virtual port without extra software (loopMIDI); Windows
+    MIDI Services could provide one once it ships widely.

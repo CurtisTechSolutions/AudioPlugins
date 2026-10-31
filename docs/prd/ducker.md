@@ -36,9 +36,9 @@ voice-over-music for podcasts and streams.
 - R3. **Sidechain availability depends on host routing.** The bus is
   declared stereo and enabled by default, but only the host decides what
   reaches it.
-  - The header shows "Sidechain input connected" (green dot) when the host
-    reports the bus enabled with more than 0 channels. Otherwise it shows
-    "No sidechain input (host routing)".
+  - The Detector card's caption says "sidechain input connected" when the
+    host reports the bus enabled with more than 0 channels. Otherwise it says
+    "no sidechain routed (host)".
   - If the bus is disabled, External falls back to keying from the main input
     and behaves like Internal.
   - If the bus is enabled but nothing is routed, it carries silence: no
@@ -113,9 +113,15 @@ applied to both channels.
 | `ghost_offset` | Offset | 0–100 % | 0 | phase within the division |
 | `ghost_bpm` | Free BPM | 40–240 bpm | 120 | used only when the host gives no tempo |
 
-**Editor:** `EditorBase`, 640 px wide, one column, blue accent `#5AC8FA`, with
-a GR meter in the header. Sections: Detector (with the sidechain status
-line), Output, and Ghost Ducking (tempo-synced, no sidechain needed).
+**Editor:** `ap::ui::EditorBase`, 1000 × 660 base (resizable 70–200 %), blue
+accent `#5AC8FA`, with Mode (segmented) and a GR meter in the header. A
+history display shows the last 8 s of input level and gain reduction (peak
+holds the processor publishes per block) with the threshold, next to the
+compressor's transfer curve and live operating point (from the same
+`GainComputer`). Cards: Detector (with the sidechain status), Output, and
+Ghost ducking, which draws one division of the ghost envelope with the
+playhead. Detector and transfer curve dim in Ghost mode; Ghost ducking dims
+in the other modes.
 
 ## 5. Acceptance tests
 

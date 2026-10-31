@@ -8,7 +8,7 @@ Linux builds too and is used for validation.
 |---|---|---|
 | **Strata** | Polyphonic subtractive synth — 2 PolyBLEP oscillators with unison, sub + noise, multimode SVF with drive, 2 ADSRs, 2 LFOs, glide, chorus / delay / reverb | Instrument |
 | **Verdant** | Flagship wavetable synth: 2 wavetable oscillators (16 factory tables, WAV import, oversampled mipmaps) with 7 warp modes and 16-voice unison, sub + 5 noise colours, 2 multimode filters (11 types, serial / parallel), 4 LFOs / 3 envelopes / 8 macros into a 24-slot drag-to-modulate matrix, reorderable 8-slot FX rack, 172 factory presets on a sound map — plus a living drift engine, sample-to-patch matching, physics modulators, a key-aware arp/sequencer with pitch snap to key, patch breeding, sympathetic-string memory and a spectral paint oscillator | Instrument |
-| **VoxNote** | Hum or sing into the mic, get MIDI out: YIN pitch tracking, onset / release gating, retrigger vs. pitch-bend logic, scale snapping, velocity from level, built-in monitor tone | Audio FX with MIDI output |
+| **VoxNote** | Hum or sing into the mic, get MIDI out: YIN pitch tracking, onset / release gating, retrigger vs. pitch-bend logic, scale snapping, velocity from level, built-in monitor tone, a live pitch-to-notes display, and direct output to a system MIDI port for hosts that drop plugin MIDI (FL Studio, Logic) | Audio FX with MIDI output |
 | **Intone** | Pitch correction to a key/scale (incl. 12-note custom scale) via formant-preserving PSOLA, retune speed + amount, plus a vocal chain: low cut, de-esser, compressor, body / presence / air EQ | Audio FX |
 | **Ducker** | Sidechain compressor with lookahead and SC low-cut, internal-detector mode, and a tempo-synced *ghost* ducking mode that needs no sidechain routing at all | Audio FX with sidechain input |
 | **Frisson** | Nine-knob sound enhancer where each knob is named for the listener response it targets — WEIGHT, WARMTH, RUSH, FOCUS, SHINE, SPACE, GROOVE, CHILLS, LIFE — plus a DOSE master and a loudness-matched MATCH bypass. Each knob is a separately tested module (see `docs/prd/`) | Audio FX (bus or track) |
@@ -24,13 +24,15 @@ core/            Header-only DSP (namespace ap), no JUCE dependency, unit-tested
   include/ap/    PitchDetector (YIN), PitchTracker, NoteTracker, PitchShifter (PSOLA),
                  Oscillator (PolyBLEP + LFO), Filters (biquad, smoother), Dynamics,
                  Scales, Tempo (divisions + ghost-duck envelope), Math
-common/          JUCE-side shared code: LookAndFeel, generic parameter panels,
-                 meters/readouts, editor base, parameter-layout helpers
+common/          JUCE-side shared code (ap::ui): look and feel, parameter cards and
+                 controls, meters, displays (response curves, envelopes, keyboards),
+                 the resizable editor base, parameter-layout helpers
 plugins/         One folder per plugin: PluginProcessor + PluginEditor + CMakeLists
 plugins/Frisson/modules/   Frisson's nine knob modules (JUCE-free, one PRD each in docs/prd/)
 plugins/Verdant/engine/    Verdant's synth engine (JUCE-free static lib verdant_engine)
 plugins/Verdant/ui/        Verdant's editor: theme, knobs, the six pages and their visualisers
 plugins/Verdant/render/    verdant_render: renders the editor pages to PNG without a display
+tools/editor_render/       <Plugin>_render: the same for the other five editors (demo signal playing)
 docs/prd/        Product requirement documents for every plugin and every Frisson knob
 tests/           ap_tests (core unit tests) and host/ (loads each built .vst3 through
                  JUCE's headless host and checks behaviour end to end)
@@ -62,7 +64,7 @@ Options:
 | `AP_BUILD_PLUGINS` | ON | Build the JUCE plugins (OFF = core + unit tests only) |
 | `AP_BUILD_TESTS` | ON | Unit tests and the VST3 host tests |
 | `AP_BUILD_STANDALONE` | OFF | Also build Standalone apps (needs ALSA on Linux) |
-| `AP_BUILD_RENDER` | ON | Build `verdant_render`, a console tool that renders Verdant's editor pages to PNG at 1× and 2× (with `AP_BUILD_PLUGINS`; not shipped) |
+| `AP_BUILD_RENDER` | ON | Build the headless editor renderers: `verdant_render` (Verdant's pages) and `<Plugin>_render` for the other five, which play a demo signal and write the editor to PNG at 1× and 2× (with `AP_BUILD_PLUGINS`; not shipped) |
 | `AP_COPY_PLUGINS` | OFF | Copy plugins to the system plugin folder after build |
 | `AP_LINUX_MINIMAL_X11` | OFF | Build without libxrandr/xinerama/xcursor/xi dev packages |
 | `FETCHCONTENT_SOURCE_DIR_JUCE` | – | Use a local JUCE checkout instead of fetching |
@@ -108,7 +110,8 @@ Proper Developer-ID signing + notarization is a TODO before sharing with other p
 - `host_<Plugin>` — `VST3HostTest` loads the built `.vst3` through JUCE's headless VST3
   host and checks real behaviour: the synths play C4 in tune and decay to silence (Verdant
   also checks voice stealing, pitch bend, the sustain pedal, a state round trip and its
-  factory presets as programs), VoxNote turns a 224 Hz tone into A3 with pitch bend and a matching note-off, Intone
+  factory presets as programs), VoxNote turns a 224 Hz tone into A3 with pitch bend and a matching note-off
+  and ends a held note when bypassed or reset, Intone
   pulls a sharp A3 to 220 Hz and snaps to C major, Ducker ducks >6 dB from the sidechain
   and pumps on the beat in ghost mode with the right latency.
 - CI and release builds additionally run [pluginval](https://github.com/Tracktion/pluginval)
@@ -129,26 +132,47 @@ signing/notarisation secrets are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Using the plugins
 
-**VoxNote** is an *audio effect that outputs MIDI*. Put it on the vocal/mic track, then on
-an instrument track set MIDI input to "VoxNote" (Ableton: *MIDI From → track → VoxNote*;
-Reaper: route MIDI from the FX track; Bitwig/FL: MIDI output of the device). Turn on
-*Monitor Synth* to hear what it detects without routing anything. Detection runs a window
-of ~20–40 ms behind the audio; the *Tracking* preset trades low-note range for latency.
-Logic Pro's AU effects can't emit MIDI; this is VST3-only by design.
+Every editor can be resized from its corner (70–200 %). Strata, VoxNote, Intone, Ducker and
+Frisson also save their size with the session.
+
+**VoxNote** is an *audio effect that outputs MIDI*. Put it on the vocal/mic track. The
+pitch display shows your voice as a line and the notes VoxNote sends as bars; the Detection
+card says whether the input reaches the *Gate*, and the *MIDI out* light blinks for every
+event. There are two ways to get the notes to an instrument:
+
+- **Host MIDI** (Ableton, Reaper, Bitwig): on an instrument track set MIDI input to
+  VoxNote (Ableton: *MIDI From → track → VoxNote*; Reaper: route MIDI from the FX track;
+  Bitwig: the device's note output).
+- **Direct to a MIDI port** (works in every host, and is the reliable route in **FL Studio**,
+  whose VST3 wrapper often drops MIDI from an effect, and in Logic / GarageBand, which can't
+  route it at all). In VoxNote's *MIDI out* card pick a port; the notes then arrive like a
+  MIDI keyboard's.
+  - Windows: install [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html), add a
+    port, choose it in VoxNote, then in FL Studio enable it under *Options → MIDI Settings →
+    Input* and select the instrument's channel in the Channel Rack (FL plays the selected
+    channel). Don't also enable the same loopMIDI port as an *output* in FL, or notes loop.
+  - macOS / Linux: choose *VoxNote (virtual port)*; it shows up as a MIDI input everywhere
+    (in Logic it appears like any controller). Or pick an IAC bus on macOS.
+  - The host's MIDI output keeps running too, so don't route both to the same instrument.
+
+Turn on *Monitor tone* to hear what it detects without routing anything. Detection runs
+~20–40 ms behind the audio; the *Tracking* preset trades low-note range for latency.
 
 **Intone** reports its latency (~50 ms at 48 kHz) to the host, so tracks stay aligned when
 playing back. For live monitoring use the host's low-latency mode or a direct-monitoring
 path. *Retune Speed* 0 ms = hard tune; 20–60 ms is natural; *Amount* blends correction.
-*Scale = Custom* uses the 12 note buttons.
+*Scale = Custom* uses the keys in the *Custom scale* card (with any other scale they show
+that scale's notes); the pitch display draws your voice against the corrected pitch.
 
 **Frisson** — turn knobs up for the ingredients you want; everything is off at 0. DOSE scales
 the whole recipe and doubles as the blend. Hit **MATCH** to hear the untouched signal raised to
 the processed loudness — if the processed version still sounds better at equal level, the
-recipe is doing something real. The header shows how many dB the processing added. CHILLS and
+recipe is doing something real. The *A / B* card shows how many dB the processing added. CHILLS and
 LIFE are modulators: they only move ingredients that are already turned up.
 
-**Ducker** — in *External sidechain* mode route the kick into the plugin's sidechain input
-(the header shows a green dot once the host connects it). *Ghost* mode needs no routing:
+**Ducker** — pick the *Mode* in the header. In *External sidechain* mode route the kick into
+the plugin's sidechain input (the Detector card says once the host connects it); the display
+shows input level and gain reduction over time next to the compressor's transfer curve. *Ghost* mode needs no routing:
 it ducks on every *Division* boundary locked to the host transport while it plays, free-runs at
 the host tempo when it stops, and uses *Free BPM* only when the host reports no tempo at all.
 

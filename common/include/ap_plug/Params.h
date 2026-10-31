@@ -26,13 +26,15 @@ inline std::unique_ptr<juce::AudioParameterFloat> floatParam (const char* id, co
                      .withLabel (suffix)
                      .withStringFromValueFunction ([suffix, decimals] (float v, int)
                      {
-                         juce::String s = juce::String (v, decimals);
+                         // juce::String (v, 0) means "full precision", not "no decimals".
+                         juce::String s = decimals > 0 ? juce::String (v, decimals) : juce::String (juce::roundToInt (v));
                          if (decimals > 0 && s.containsChar ('.'))
                          {
                              s = s.trimCharactersAtEnd ("0");
                              s = s.trimCharactersAtEnd (".");
                          }
-                         return suffix.isEmpty() ? s : s + " " + suffix;
+                         // Ratios read "3:1", everything else "3 dB".
+                         return suffix.isEmpty() ? s : s + (suffix.startsWithChar (':') ? "" : " ") + suffix;
                      })
                      .withValueFromStringFunction ([] (const juce::String& text)
                      {

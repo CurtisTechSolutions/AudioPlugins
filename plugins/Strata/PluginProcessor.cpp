@@ -233,10 +233,26 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     buffer.clear();
     updateSettings();
 
-    // Mod wheel -> vibrato on all voices.
+    // Notes from the editor's keyboard.
+    juce::uint16 key;
+    while (keyboardEvents.pop (key))
+    {
+        const int note = key & 0x7f;
+        midi.addEvent ((key & 0x80) != 0 ? juce::MidiMessage::noteOn (1, note, (juce::uint8) 100)
+                                         : juce::MidiMessage::noteOff (1, note), 0);
+    }
+
+    // Mod wheel -> vibrato on all voices; held notes for the editor's keyboard.
     for (const auto meta : midi)
     {
         const auto m = meta.getMessage();
+        if (m.isNoteOn())
+            held[(size_t) m.getNoteNumber() >> 5].fetch_or (1u << (m.getNoteNumber() & 31), std::memory_order_relaxed);
+        else if (m.isNoteOff())
+            held[(size_t) m.getNoteNumber() >> 5].fetch_and (~(1u << (m.getNoteNumber() & 31)), std::memory_order_relaxed);
+        else if (m.isAllNotesOff() || m.isAllSoundOff())
+            for (auto& h : held) h.store (0, std::memory_order_relaxed);
+
         if (m.isController() && m.getControllerNumber() == 1)
         {
             const float amt = (float) m.getControllerValue() / 127.0f;

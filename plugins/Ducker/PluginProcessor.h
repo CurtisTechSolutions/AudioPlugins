@@ -76,6 +76,14 @@ public:
     std::atomic<float> sidechainLevel { 0.0f };
     std::atomic<bool>  sidechainConnected { false };
 
+    // For the editor's history display: the most gain reduction (dB, <= 0) and the main
+    // input peak (linear) since the editor last took them (it swaps in 0).
+    std::atomic<float> grHoldDb { 0.0f };
+    std::atomic<float> inputHold { 0.0f };
+    // For the ghost display: the tempo in use and where in the division the output is (0..1).
+    std::atomic<float> bpmInUse { 120.0f };
+    std::atomic<float> ghostPhase { 0.0f };
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void updateParams();

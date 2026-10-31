@@ -2,7 +2,9 @@
 
 #include "Math.h"
 
+#include <algorithm>
 #include <cmath>
+#include <complex>
 
 namespace ap
 {
@@ -83,6 +85,16 @@ public:
         z1 = b1 * x - a1 * y + z2;
         z2 = b2 * x - a2 * y;
         return y;
+    }
+
+    /** Magnitude response in dB at `hz` for the current coefficients (for response displays). */
+    float magnitudeDb (double hz, double sampleRate) const noexcept
+    {
+        const std::complex<double> z1inv = std::polar (1.0, -kTwoPiD * hz / sampleRate);
+        const std::complex<double> z2inv = z1inv * z1inv;
+        const auto h = ((double) b0 + (double) b1 * z1inv + (double) b2 * z2inv)
+                     / (1.0 + (double) a1 * z1inv + (double) a2 * z2inv);
+        return (float) (20.0 * std::log10 (std::max (1.0e-9, std::abs (h))));
     }
 
 private:

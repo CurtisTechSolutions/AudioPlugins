@@ -121,10 +121,14 @@ floor sets both the maximum grain length and the latency.
 | `air` | Air | −12 – +12 dB | 0 | |
 | `output` | Output | −24 – +24 dB | 0 | |
 
-**Editor:** `EditorBase`, 700 px wide, one column, purple accent `#BF5AF2`.
-The header shows a PitchReadout ("A3 → A3"). Sections: Pitch Correction;
-the 12-toggle Custom Scale Notes row; De-esser & Compressor with a GR meter;
-Tone & Output with an output meter.
+**Editor:** `ap::ui::EditorBase`, 1060 × 676 base (resizable 70–200 %),
+purple accent `#BF5AF2`. The header shows the tuner read-out ("G#4 −11 ct,
+404 Hz → G4"). A pitch display plots the detected pitch against the
+corrected pitch over the active scale's rows, next to the Correction card.
+Below: Custom scale (one octave of keys: toggles when Scale = Custom,
+otherwise showing the current scale's notes), De-esser, Compressor (with a
+GR meter), Tone (the EQ curve computed from the same biquads as the tone
+stage, via `Biquad::magnitudeDb`) and Output (with a meter).
 
 ## 5. Acceptance tests
 

@@ -3,7 +3,6 @@
 #include "PluginProcessor.h"
 
 #include <ap_ui/EditorBase.h>
-#include <ap_ui/Meters.h>
 
 #include <array>
 #include <atomic>
@@ -12,43 +11,46 @@
 namespace frisson
 {
 
-/** A rotary knob with a name and an activity ring that shows what the module is doing. */
-class RingKnob : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
+/**
+    One of the nine knobs as a small card: name, what it does to the listener,
+    the knob, and a ring around it that glows with what the module is doing.
+    With `large` it is the DOSE master instead (no activity).
+*/
+class RingKnob : public juce::Component, public juce::SettableTooltipClient, public ap::ui::Animated
 {
 public:
-    RingKnob (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramId,
-              const juce::String& title, std::atomic<float>* activitySource, bool large = false);
-    ~RingKnob() override;
+    RingKnob (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramId, const juce::String& title,
+              const juce::String& tagline, std::atomic<float>* activitySource, bool large = false);
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void tick() override;
 
 private:
-    void timerCallback() override;
+    juce::Rectangle<float> knobArea() const;
 
     juce::Slider slider;
     juce::AudioProcessorValueTreeState::SliderAttachment attachment;
-    juce::String name;
+    juce::String name, line;
     std::atomic<float>* activity;
     float shown = 0.0f;
-    bool  big;
+    bool big;
 };
 
-/** MATCH button plus the loudness-difference readout. */
-class MatchPanel : public juce::Component, private juce::Timer
+/** MATCH (level-matched bypass) plus the loudness difference and the output meter. */
+class MatchPanel : public juce::Component, public ap::ui::Animated
 {
 public:
-    MatchPanel (Processor&);
-    ~MatchPanel() override;
+    explicit MatchPanel (Processor&);
     void paint (juce::Graphics&) override;
     void resized() override;
+    void tick() override;
 
 private:
-    void timerCallback() override;
-
     Processor& processor;
     juce::TextButton button { "MATCH" };
     juce::AudioProcessorValueTreeState::ButtonAttachment attachment;
+    ap::ui::LevelMeter meter;
     float delta = 0.0f;
 };
 
@@ -58,20 +60,16 @@ public:
     explicit Editor (Processor&);
     ~Editor() override = default;
 
-    void resized() override;
-    void paint (juce::Graphics&) override;
+protected:
+    void layoutContent (juce::Rectangle<int>) override;
+    void paintLogo (juce::Graphics&, juce::Rectangle<float>) override;
 
 private:
-    void updateAdvancedVisibility();
-
     Processor& processor;
     std::array<std::unique_ptr<RingKnob>, kNumKnobs> knobs;
     std::unique_ptr<RingKnob> dose;
     MatchPanel matchPanel;
-    juce::TextButton advancedToggle { "Advanced" };
-    std::unique_ptr<ap::ui::ParamSection> advanced;
-    ap::ui::LevelMeter meter;
-    bool showAdvanced = false;
+    ap::ui::ParamSection *match = nullptr, *advanced = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Editor)
 };

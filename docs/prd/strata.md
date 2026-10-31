@@ -132,10 +132,16 @@ IDs and their defaults in order.
 | `reverb_size` | Room Size | 0–100 % | 50 | |
 | `reverb_mix` | Reverb | 0–100 % | 0 | |
 
-**Editor:** `ap::ui::EditorBase`, 980 px, 2 columns, amber `#F5A623`, with an
-output meter in the header. Left column: Oscillator A, Oscillator B, Sub &
-Noise, Filter. Right column: Amp Envelope, Filter Envelope, LFO 1 · Pitch,
-LFO 2 · Filter, Global, Effects.
+**Editor:** `ap::ui::EditorBase`, 1200 × 764 base (resizable 70–200 %),
+amber `#F5A623`, output meter in the header. Four bands of cards:
+Oscillator A / Oscillator B (each with a two-cycle waveform preview; Width
+dims unless the wave is Square, Detune / Spread unless Unison > 1) / Sub &
+noise; Filter (the voice filter's response curve with the cutoff marked,
+drawn from the same SVF formula) / Amp envelope / Filter envelope (ADSR
+graphs); LFO 1 > pitch / LFO 2 > filter / Voice & output; Chorus / Delay /
+Reverb / Play, a four-octave keyboard that auditions notes (queued to the
+audio thread and played on channel 1) and lights the notes held from the
+host.
 
 ## 5. Acceptance tests
 

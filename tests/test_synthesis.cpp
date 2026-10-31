@@ -105,6 +105,30 @@ AP_TEST (biquad_lowpass_attenuates_highs)
     CHECK (high / low < 0.02);              // ~-40 dB a decade above
 }
 
+AP_TEST (biquad_magnitude_matches_measured_response)
+{
+    // magnitudeDb (used by the editors' response displays) agrees with what the filter does.
+    const double sr = 48000.0;
+    Biquad lp, peak;
+    lp.configure (Biquad::Type::LowPass, sr, 1000.0f, 0.707f);
+    peak.configure (Biquad::Type::Peak, sr, 3200.0f, 1.2f, 6.0f);
+    CHECK_NEAR (lp.magnitudeDb (100.0, sr), 0.0, 0.1);
+    CHECK_NEAR (lp.magnitudeDb (1000.0, sr), -3.01, 0.1);
+    CHECK (lp.magnitudeDb (10000.0, sr) < -38.0);
+    CHECK_NEAR (peak.magnitudeDb (3200.0, sr), 6.0, 0.05);
+    CHECK_NEAR (peak.magnitudeDb (50.0, sr), 0.0, 0.05);
+
+    for (double hz : { 300.0, 2000.0, 6000.0 })
+    {
+        lp.reset();
+        std::vector<float> v (16384);
+        for (size_t i = 0; i < v.size(); ++i)
+            v[i] = lp.process ((float) std::sin (kTwoPiD * hz * (double) i / sr));
+        const double measuredDb = 20.0 * std::log10 (rmsOf (std::vector<float> (v.begin() + 4096, v.end())) / 0.70710678);
+        CHECK_NEAR (lp.magnitudeDb (hz, sr), measuredDb, 0.15);
+    }
+}
+
 AP_TEST (smoother_converges)
 {
     Smoother s;

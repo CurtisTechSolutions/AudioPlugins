@@ -7,7 +7,7 @@ buildable, separately tested module).
 |---|---|---|
 | [strata.md](strata.md) | Strata — polyphonic subtractive synth | shipped v0.1 |
 | [verdant.md](verdant.md) | Verdant — flagship wavetable synth | in development v0.1 |
-| [voxnote.md](voxnote.md) | VoxNote — voice-to-MIDI | shipped v0.1 |
+| [voxnote.md](voxnote.md) | VoxNote — voice-to-MIDI | shipped v0.2 |
 | [intone.md](intone.md) | Intone — pitch correction + vocal chain | shipped v0.1 |
 | [ducker.md](ducker.md) | Ducker — sidechain + ghost ducking | shipped v0.1 |
 | [frisson.md](frisson.md) | Frisson — reward-system sound enhancer (umbrella) | built v0.1 (unit + host tests, pluginval 10) |
