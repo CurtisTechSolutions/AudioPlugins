@@ -5,6 +5,7 @@ ap_add_plugin(Frisson
     VST3_CATEGORIES Fx Mastering
     SOURCES
         PluginProcessor.cpp
+        Presets.cpp
         PluginEditor.cpp)
 
 target_link_libraries(Frisson PRIVATE frisson_modules)

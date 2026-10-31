@@ -3,8 +3,9 @@
 // The factory library (built once, in code). It is listed first by the preset
 // browser and exposed to hosts as the program list, so its order is fixed:
 // preset 0 "Verdant Keys" (the default sound) and preset 1 "Glass Piano", then
-// the categories in factoryCategories() order. New presets go at the end of
-// their category file only when the bank is re-released; never reorder.
+// the categories in factoryCategories() order (programs 0-171). New presets are
+// appended as an expansion block, itself in category order
+// (FactoryPresets_Expansion.cpp, programs 172 on); never reorder or insert.
 //
 // Every preset: a unique name of at most 24 characters, one of the nine
 // categories, 2-4 tags from factoryTags(), author "Curtis Tech Solutions",

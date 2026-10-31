@@ -76,6 +76,20 @@ Gate and Sensitivity.
   `prepareToPlay` (frame callbacks run inline). State is APVTS XML with root
   `VOXNOTE`, and parameter IDs and names are frozen. Passes `host_VoxNote` and
   pluginval strictness 10 on all three OSes.
+- R14. **Factory presets.** 20 presets in four categories: Voice (humming,
+  singing, whistling, legato and staccato), Bass (beatbox and low voices an
+  octave or two down), In Key (scale snapping in named keys, a fifth-up
+  harmony on channel 2) and Instrument (guitar, noisy rooms, quiet mics,
+  fixed-velocity pads, the monitor check). Factory presets (`Presets.cpp`,
+  through `ap::plug::Programs`) are the host program list. Program 0 is
+  "Default" (every parameter at its default, the state a new instance opens
+  in); loading any preset first returns every parameter to its default, so
+  nothing carries over. The current program number is saved in the state
+  (attribute `program`). The editor's preset strip steps through the bank or
+  picks from a menu grouped by category, and marks the name with `*` once a
+  parameter differs from the preset. The order is frozen once released: new
+  presets are appended. `host_VoxNote` loads every program and checks it
+  changes parameters and plays finite audio.
 
 ## 4. Design
 

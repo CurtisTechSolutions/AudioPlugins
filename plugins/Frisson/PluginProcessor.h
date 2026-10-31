@@ -2,6 +2,8 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <ap_plug/Programs.h>
+
 #include <ap/DelayLine.h>
 #include <ap/Filters.h>
 #include <ap/Loudness.h>
@@ -84,16 +86,18 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.05; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return "Default"; }
+    // Factory presets (Presets.cpp) are the program list.
+    int getNumPrograms() override { return programs.getNumPrograms(); }
+    int getCurrentProgram() override { return programs.getCurrentProgram(); }
+    void setCurrentProgram (int index) override { programs.setCurrentProgram (index); }
+    const juce::String getProgramName (int index) override { return programs.getProgramName (index); }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState apvts;
+    ap::plug::Programs programs;
 
     // --- for the editor
     std::array<std::atomic<float>, kNumKnobs> activity {};

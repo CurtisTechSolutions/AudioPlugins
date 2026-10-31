@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Presets.h"
 
 #include <ap_plug/Params.h>
 
@@ -103,7 +104,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::createLayout()
 
 Processor::Processor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "STRATA", createLayout())
+      apvts (*this, nullptr, "STRATA", createLayout()),
+      programs (*this, factoryPresets())
 {
     prm.aWave = ap::plug::raw (apvts, ids::aWave); prm.aOct = ap::plug::raw (apvts, ids::aOct); prm.aSemi = ap::plug::raw (apvts, ids::aSemi);
     prm.aFine = ap::plug::raw (apvts, ids::aFine); prm.aLevel = ap::plug::raw (apvts, ids::aLevel); prm.aPw = ap::plug::raw (apvts, ids::aPw);
@@ -326,7 +328,9 @@ juce::AudioProcessorEditor* Processor::createEditor()
 
 void Processor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
+    auto state = apvts.copyState();
+    programs.saveTo (state);
+    if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
 
@@ -334,7 +338,10 @@ void Processor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
+        {
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+            programs.restoreFrom (*xml);
+        }
 }
 
 } // namespace strata

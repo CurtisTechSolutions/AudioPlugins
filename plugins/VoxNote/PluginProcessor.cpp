@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Presets.h"
 
 #include <ap_plug/Params.h>
 
@@ -63,7 +64,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::createLayout()
 Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true)
                                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "VOXNOTE", createLayout())
+      apvts (*this, nullptr, "VOXNOTE", createLayout()),
+      programs (*this, factoryPresets())
 {
     prm.tracking = raw (apvts, ids::tracking);   prm.gate = raw (apvts, ids::gate);
     prm.sensitivity = raw (apvts, ids::sensitivity); prm.onset = raw (apvts, ids::onset);
@@ -225,7 +227,9 @@ juce::AudioProcessorEditor* Processor::createEditor()
 
 void Processor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
+    auto state = apvts.copyState();
+    programs.saveTo (state);
+    if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
 
@@ -233,7 +237,10 @@ void Processor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
+        {
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+            programs.restoreFrom (*xml);
+        }
 }
 
 } // namespace voxnote

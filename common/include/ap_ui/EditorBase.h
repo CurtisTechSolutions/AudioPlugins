@@ -2,6 +2,7 @@
 
 #include "LookAndFeel.h"
 #include "ParamPanel.h"
+#include "PresetBar.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -30,6 +31,7 @@ public:
 protected:
     static constexpr int headerHeight = 54;
     static constexpr int margin = 10;
+    static constexpr int presetBarHeight = 30;
 
     /** `column` selects the layout column (0-based) when the editor has more than one. */
     ParamSection& addSection (const juce::String& title, const juce::StringArray& paramIds,
@@ -40,6 +42,12 @@ protected:
 
     /** A component placed in the header's right side (readouts, meters). */
     void setHeaderComponent (juce::Component* c, int width, int height);
+
+    /** Adds the factory-preset strip under the header; call before adding sections. */
+    void addPresetBar (ap::plug::Programs& programs);
+
+    /** Top of the content area: below the header, and below the preset strip when there is one. */
+    int contentTop() const noexcept;
 
     /** Recomputes the window height from the sections; call after adding sections. */
     void finishLayout();
@@ -60,6 +68,7 @@ private:
 
     juce::String titleText, taglineText;
     std::vector<Entry> entries;
+    std::unique_ptr<PresetBar> presetBar;
     juce::Component* headerComponent = nullptr;
     int headerComponentWidth = 0, headerComponentHeight = 0;
     int editorWidth;

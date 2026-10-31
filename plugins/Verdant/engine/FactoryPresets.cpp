@@ -10,7 +10,7 @@ namespace
     std::vector<Patch> build()
     {
         std::vector<Patch> bank;
-        bank.reserve (180);
+        bank.reserve (210);
         // Fixed order (host program numbers): the two openers, then one block per category.
         factory::addOpeningPresets (bank);
         factory::addBassPresets (bank);
@@ -22,6 +22,8 @@ namespace
         factory::addTexturePresets (bank);
         factory::addSequencePresets (bank);
         factory::addDrumPresets (bank);
+        // Expansions only ever append, so the original program numbers never move.
+        factory::addExpansionPresets (bank);
         return bank;
     }
 }

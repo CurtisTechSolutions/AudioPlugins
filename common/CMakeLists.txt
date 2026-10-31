@@ -13,6 +13,7 @@ target_sources(ap_common INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/LookAndFeel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ParamPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/Meters.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/EditorBase.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/EditorBase.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/PresetBar.cpp)
 
 target_link_libraries(ap_common INTERFACE ap_core)

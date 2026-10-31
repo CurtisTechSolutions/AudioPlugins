@@ -9,6 +9,7 @@ Editor::Editor (Processor& p)
       readout (p.detectedHz),
       meter (p.inputLevel)
 {
+    addPresetBar (p.programs);
     setHeaderComponent (&readout, 200, 46);
 
     auto& det = addSection ("Detection", { ids::tracking, ids::gate, ids::sensitivity, ids::onset, ids::release });

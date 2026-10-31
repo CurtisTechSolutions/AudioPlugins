@@ -8,6 +8,21 @@
 #
 # Wraps juce_add_plugin with the settings shared by every plugin in this repo.
 
+# ap_apply_minimal_x11(<target>)
+#
+# With AP_LINUX_MINIMAL_X11 on Linux, builds <target>'s JUCE GUI code without
+# the optional X11 extensions (Xrandr, Xinerama, Xcursor, XInput), so their dev
+# packages are not needed. Every target that compiles juce_gui_basics calls it.
+function(ap_apply_minimal_x11 target)
+    if(AP_LINUX_MINIMAL_X11 AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_compile_definitions(${target} PUBLIC
+            JUCE_USE_XRANDR=0
+            JUCE_USE_XINERAMA=0
+            JUCE_USE_XCURSOR=0
+            JUCE_USE_XINPUT=0)
+    endif()
+endfunction()
+
 function(ap_add_plugin target)
     set(options        IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT)
     set(oneValueArgs   PRODUCT_NAME PLUGIN_CODE DESCRIPTION)
@@ -63,13 +78,7 @@ function(ap_add_plugin target)
         JUCE_MODAL_LOOPS_PERMITTED=0
         JUCE_DISABLE_JUCE_VERSION_PRINTING=1)
 
-    if(AP_LINUX_MINIMAL_X11 AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        target_compile_definitions(${target} PUBLIC
-            JUCE_USE_XRANDR=0
-            JUCE_USE_XINERAMA=0
-            JUCE_USE_XCURSOR=0
-            JUCE_USE_XINPUT=0)
-    endif()
+    ap_apply_minimal_x11(${target})
 
     target_link_libraries(${target}
         PRIVATE

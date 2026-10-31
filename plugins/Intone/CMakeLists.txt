@@ -5,4 +5,5 @@ ap_add_plugin(Intone
     VST3_CATEGORIES Fx Pitch\ Shift
     SOURCES
         PluginProcessor.cpp
+        Presets.cpp
         PluginEditor.cpp)

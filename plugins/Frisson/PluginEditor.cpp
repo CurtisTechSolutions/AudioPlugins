@@ -130,6 +130,7 @@ Editor::Editor (Processor& p)
       matchPanel (p),
       meter (p.outputPeak)
 {
+    addPresetBar (p.programs);
     for (int k = 0; k < kNumKnobs; ++k)
     {
         knobs[(size_t) k] = std::make_unique<RingKnob> (p.apvts, knobParamId (k), kKnobTitles[k], &p.activity[(size_t) k]);
@@ -159,7 +160,7 @@ void Editor::updateAdvancedVisibility()
     advanced->setVisible (showAdvanced);
     const int w = getWidth() > 0 ? getWidth() : 3 * kCell + kRightColumn + 3 * margin;
     const int gridH = 3 * kCell;
-    int h = headerHeight + margin + gridH + margin + kAdvancedToggleHeight + margin;
+    int h = contentTop() + gridH + margin + kAdvancedToggleHeight + margin;
     if (showAdvanced) h += advanced->preferredHeight (w - 2 * margin) + margin;
     setSize (w, h);
 }
@@ -169,7 +170,7 @@ void Editor::paint (juce::Graphics& g)
     ap::ui::EditorBase::paint (g);
     const auto& th = lookAndFeel.theme();
     // Panel behind the grid and the right column.
-    auto area = getLocalBounds().withTrimmedTop (headerHeight + margin).reduced (margin, 0);
+    auto area = getLocalBounds().withTrimmedTop (contentTop()).reduced (margin, 0);
     const auto grid = area.removeFromLeft (3 * kCell);
     g.setColour (th.panel);
     g.fillRoundedRectangle (grid.withHeight (3 * kCell).toFloat(), 8.0f);
@@ -185,7 +186,7 @@ void Editor::paint (juce::Graphics& g)
 void Editor::resized()
 {
     ap::ui::EditorBase::resized();
-    auto area = getLocalBounds().withTrimmedTop (headerHeight + margin).reduced (margin, 0);
+    auto area = getLocalBounds().withTrimmedTop (contentTop()).reduced (margin, 0);
     auto grid = area.removeFromLeft (3 * kCell).withHeight (3 * kCell);
     for (int k = 0; k < kNumKnobs; ++k)
     {
@@ -197,7 +198,7 @@ void Editor::resized()
     dose->setBounds (right.removeFromTop (2 * kCell).reduced (10));
     matchPanel.setBounds (right.reduced (10, 6));
 
-    auto below = getLocalBounds().withTrimmedTop (headerHeight + margin + 3 * kCell + margin).reduced (margin, 0);
+    auto below = getLocalBounds().withTrimmedTop (contentTop() + 3 * kCell + margin).reduced (margin, 0);
     advancedToggle.setBounds (below.removeFromTop (kAdvancedToggleHeight).removeFromLeft (110));
     if (showAdvanced)
     {

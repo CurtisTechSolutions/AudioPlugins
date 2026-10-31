@@ -20,7 +20,20 @@ EditorBase::EditorBase (juce::AudioProcessor& p, juce::AudioProcessorValueTreeSt
 
 EditorBase::~EditorBase()
 {
+    if (presetBar != nullptr) presetBar->setLookAndFeel (nullptr);
     setLookAndFeel (nullptr);
+}
+
+void EditorBase::addPresetBar (ap::plug::Programs& programs)
+{
+    presetBar = std::make_unique<PresetBar> (programs);
+    presetBar->setLookAndFeel (&lookAndFeel);
+    addAndMakeVisible (*presetBar);
+}
+
+int EditorBase::contentTop() const noexcept
+{
+    return headerHeight + margin + (presetBar != nullptr ? presetBarHeight + margin : 0);
 }
 
 int EditorBase::columnWidth() const noexcept
@@ -60,7 +73,7 @@ void EditorBase::setHeaderComponent (juce::Component* c, int width, int height)
 
 void EditorBase::finishLayout()
 {
-    std::vector<int> heights ((size_t) columns, headerHeight + margin);
+    std::vector<int> heights ((size_t) columns, contentTop());
     const int w = columnWidth();
     for (auto& e : entries)
     {
@@ -104,8 +117,11 @@ void EditorBase::resized()
                                                               juce::jmin (headerComponentHeight, headerHeight - 8)));
     }
 
+    if (presetBar != nullptr)
+        presetBar->setBounds (margin, headerHeight + margin, getWidth() - 2 * margin, presetBarHeight);
+
     const int w = columnWidth();
-    std::vector<int> y ((size_t) columns, headerHeight + margin);
+    std::vector<int> y ((size_t) columns, contentTop());
     for (auto& e : entries)
     {
         const int x = margin + e.column * (w + margin);

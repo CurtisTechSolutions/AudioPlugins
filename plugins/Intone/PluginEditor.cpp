@@ -48,6 +48,7 @@ Editor::Editor (Processor& p)
       grMeter (p.gainReductionDb),
       meter (p.outputLevel)
 {
+    addPresetBar (p.programs);
     setHeaderComponent (&readout, 230, 46);
 
     addSection ("Pitch Correction", { ids::key, ids::scale, ids::speed, ids::amount, ids::transpose,

@@ -41,6 +41,18 @@ the UI or marketing copy beyond naming.
 - R8. Passes pluginval at strictness 10 and the repo's VST3 host test.
 - R9. No allocations, locks or I/O on the audio thread after prepare.
 - R10. Mono and stereo in/out; mono input is processed as dual mono.
+- R11. **Factory presets.** 27 presets in five categories: Mix & Master,
+  Drums, Vocals, Instruments and Character. Every preset sets DOSE and all
+  nine knobs explicitly. Factory presets (`Presets.cpp`, through
+  `ap::plug::Programs`) are the host program list. Program 0 is "Default"
+  (every parameter at its default, the state a new instance opens in); loading
+  any preset first returns every parameter to its default, so nothing carries
+  over. The current program number is saved in the state (attribute
+  `program`). The editor's preset strip steps through the bank or picks from a
+  menu grouped by category, and marks the name with `*` once a parameter
+  differs from the preset. The order is frozen once released: new presets are
+  appended. `host_Frisson` loads every program and checks it changes
+  parameters and plays finite audio.
 
 ## 4. Design
 
@@ -146,6 +158,6 @@ most.
 
 ## 7. Out of scope / later
 
-Oversampling of the saturating stages (v0.2), presets browser, AU/CLAP, a
+Oversampling of the saturating stages (v0.2), user presets, AU/CLAP, a
 "learn" mode that proposes a recipe from the input's spectral balance,
 genre reference curves in the meter.

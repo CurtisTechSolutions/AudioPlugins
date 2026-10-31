@@ -39,13 +39,28 @@ jobs:
       created: ${{ steps.rp.outputs.release_created }}
       tag: ${{ steps.rp.outputs.tag_name }}
     steps:
+      # An org/repo PAT lets the release PR trigger CI and works even when
+      # "Allow GitHub Actions to create pull requests" is off. An expired or
+      # revoked PAT used to fail the whole job ("Bad credentials"), so check it
+      # first and fall back to the built-in token with a warning.
+      - id: token
+        name: Check release token
+        env:
+          PAT: ${{ secrets.MY_RELEASE_PLEASE_TOKEN }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "use_pat=false" >> "$GITHUB_OUTPUT"
+          elif GH_TOKEN="$PAT" gh api "repos/$GITHUB_REPOSITORY" --silent; then
+            echo "use_pat=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning title=Release token rejected::MY_RELEASE_PLEASE_TOKEN was rejected by GitHub (expired or revoked?). Using the built-in token; the release PR will not trigger CI until the secret is rotated."
+            echo "use_pat=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - id: rp
         uses: googleapis/release-please-action@v5
         with:
-          # An org/repo PAT lets the release PR trigger CI and works even when
-          # "Allow GitHub Actions to create pull requests" is off; otherwise
-          # the built-in token is used.
-          token: ${{ secrets.MY_RELEASE_PLEASE_TOKEN || github.token }}
+          token: ${{ steps.token.outputs.use_pat == 'true' && secrets.MY_RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
