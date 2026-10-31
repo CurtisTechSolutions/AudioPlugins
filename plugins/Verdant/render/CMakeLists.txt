@@ -20,6 +20,8 @@ target_compile_definitions(verdant_render PRIVATE
     JUCE_MODAL_LOOPS_PERMITTED=0
     JUCE_DISABLE_JUCE_VERSION_PRINTING=1)
 
+ap_apply_minimal_x11(verdant_render)
+
 target_link_libraries(verdant_render PRIVATE
     verdant_engine
     ap_core
