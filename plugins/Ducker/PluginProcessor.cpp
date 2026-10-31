@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Presets.h"
 
 #include <ap_plug/Params.h>
 
@@ -48,7 +49,8 @@ Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true)
                                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                                        .withInput ("Sidechain", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "DUCKER", createLayout())
+      apvts (*this, nullptr, "DUCKER", createLayout()),
+      programs (*this, factoryPresets())
 {
     prm.mode = raw (apvts, ids::mode);           prm.threshold = raw (apvts, ids::threshold);
     prm.ratio = raw (apvts, ids::ratio);         prm.knee = raw (apvts, ids::knee);
@@ -252,7 +254,9 @@ juce::AudioProcessorEditor* Processor::createEditor()
 
 void Processor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
+    auto state = apvts.copyState();
+    programs.saveTo (state);
+    if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
 
@@ -260,7 +264,10 @@ void Processor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
+        {
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+            programs.restoreFrom (*xml);
+        }
 }
 
 } // namespace ducker

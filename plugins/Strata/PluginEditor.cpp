@@ -8,6 +8,7 @@ Editor::Editor (Processor& p)
       processor (p),
       meter (p.outputLevel)
 {
+    addPresetBar (p.programs);
     setHeaderComponent (&meter, 14, 40);
 
     // Left column: sound sources + filter.

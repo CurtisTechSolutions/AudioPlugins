@@ -75,6 +75,19 @@ voice-over-music for podcasts and streams.
   `prepareToPlay`. State is APVTS XML with root `DUCKER`. Parameter IDs and
   names are frozen.
 - R12. Passes `host_Ducker` and pluginval strictness 10 in CI on all three OSes.
+- R13. **Factory presets.** 27 presets in three categories: Sidechain (kick
+  pump, bass, snare and hat clearance, voice-over and podcast beds), Internal
+  (bus glue, drum smash, levelling, transient taming) and Ghost (tempo-synced
+  pumps from 1/1 to 1/16, triplet and dotted, offbeat). Factory presets
+  (`Presets.cpp`, through `ap::plug::Programs`) are the host program list.
+  Program 0 is "Default" (every parameter at its default, the state a new
+  instance opens in); loading any preset first returns every parameter to its
+  default, so nothing carries over. The current program number is saved in the
+  state (attribute `program`). The editor's preset strip steps through the
+  bank or picks from a menu grouped by category, and marks the name with `*`
+  once a parameter differs from the preset. The order is frozen once released:
+  new presets are appended. `host_Ducker` loads every program and checks it
+  changes parameters and plays finite audio.
 
 ## 4. Design
 
@@ -147,7 +160,7 @@ line), Output, and Ghost Ducking (tempo-synced, no sidechain needed).
   drawable ghost envelope, and a transient-only detector.
 - A sidechain level meter and a GR history display. RMS detection and an
   unlinked stereo mode.
-- Presets, AU/CLAP, and Developer-ID signing and notarization.
+- User presets, AU/CLAP, and Developer-ID signing and notarization.
 - Known v0.1 gaps:
   - Ghost mode with Lookahead > 0: the envelope is computed at input time
     but applied to delayed audio. After delay compensation the dip lands

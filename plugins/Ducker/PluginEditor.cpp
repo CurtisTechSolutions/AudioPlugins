@@ -35,6 +35,7 @@ Editor::Editor (Processor& p)
       grMeter (p.gainReductionDb),
       status (p)
 {
+    addPresetBar (p.programs);
     setHeaderComponent (&grMeter, 180, 40);
 
     auto& det = addSection ("Detector", { ids::mode, ids::threshold, ids::ratio, ids::knee, ids::attack, ids::release,

@@ -5,4 +5,5 @@ ap_add_plugin(Ducker
     VST3_CATEGORIES Fx Dynamics
     SOURCES
         PluginProcessor.cpp
+        Presets.cpp
         PluginEditor.cpp)

@@ -6,4 +6,5 @@ ap_add_plugin(Strata
     NEEDS_MIDI_INPUT
     SOURCES
         PluginProcessor.cpp
+        Presets.cpp
         PluginEditor.cpp)

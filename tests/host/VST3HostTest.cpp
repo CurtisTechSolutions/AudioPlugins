@@ -199,6 +199,113 @@ void commonChecks (Host& host)
 
 }
 
+/** The factory presets of the APVTS plugins: exposed as programs (program 0 "Default"), each one
+    changes parameters through the VST3 wrapper, plays finite (instruments: audible and unclipped)
+    audio, and the program number survives a state round trip. */
+/** The program-change and bypass parameters the JUCE VST3 wrapper adds of its own. */
+bool isWrapperParameter (const juce::AudioProcessorParameter& p)
+{
+    const auto name = p.getName (64);
+    return name == "Program" || name == "Bypass";
+}
+
+void factoryProgramChecks (Host& host, bool instrument)
+{
+    std::printf ("Factory presets\n");
+    auto* plugin = host.plugin.get();
+    const int n = plugin->getNumPrograms();
+    std::printf ("    %d programs\n", n);
+    check (n >= 15, "at least 15 factory presets are exposed as programs");
+    check (plugin->getProgramName (0) == "Default", "program 0 is \"Default\"");
+
+    juce::StringArray names;
+    for (int i = 0; i < n; ++i) names.addIfNotAlreadyThere (plugin->getProgramName (i));
+    check (names.size() == n && ! names.contains ({}), "program names are unique and non-empty");
+
+    auto silence = [] (int, int, juce::int64) { return 0.0f; };
+    auto signal = [] (int, int, juce::int64 t) { return tone (220.0, t, 0.25, 6); };
+    int wrongProgram = 0, unchanged = 0, nonFinite = 0, quiet = 0, clipped = 0;
+    for (int i = 0; i < n; ++i)
+    {
+        plugin->setCurrentProgram (i);
+        // VST3 delivers the program change with the next block; then let gain smoothing settle.
+        for (int b = 0; b < 8; ++b) host.processBlock (silence);
+        if (plugin->getCurrentProgram() != i) ++wrongProgram;
+
+        bool changed = false;
+        for (auto* p : plugin->getParameters())
+            if (! isWrapperParameter (*p) && std::fabs (p->getValue() - p->getDefaultValue()) > 1.0e-4f) changed = true;
+        if (i > 0 && ! changed) { ++unchanged; std::printf ("    %s: no parameter differs from its default\n",
+                                                           plugin->getProgramName (i).toRawUTF8()); }
+
+        std::vector<float> out;
+        bool finite = true;
+        if (instrument)
+        {
+            for (int note : { 48, 55, 60 }) host.midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            for (int b = 0; b < 60; ++b) { host.processBlock (silence, &out); finite = finite && host.outputIsFinite(); }
+            for (int note : { 48, 55, 60 }) host.midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+            for (int b = 0; b < 20; ++b) { host.processBlock (silence, &out); finite = finite && host.outputIsFinite(); }
+            host.midi.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+            host.midi.addEvent (juce::MidiMessage::allSoundOff (1), 0);
+            // Let release and FX tails die away so the next preset starts from silence.
+            std::vector<float> tail (out.end() - kBlock, out.end());
+            for (int b = 0; b < 600 && rmsOf (tail, 0, tail.size()) > 1.0e-5; ++b)
+            {
+                tail.clear();
+                host.processBlock (silence, &tail);
+                finite = finite && host.outputIsFinite();
+            }
+        }
+        else
+        {
+            for (int b = 0; b < 30; ++b) host.processBlock (signal);   // let dynamics and smoothing settle
+            for (int b = 0; b < 60; ++b) { host.processBlock (signal, &out); finite = finite && host.outputIsFinite(); }
+            for (int b = 0; b < 20; ++b) host.processBlock (silence);
+        }
+
+        float peak = 0.0f;
+        for (float x : out) peak = std::max (peak, std::fabs (x));
+        const double rms = rmsOf (out, 0, (size_t) kBlock * 60);
+        std::printf ("    %3d %-24s rms %6.1f dBFS  peak %.3f\n", i, plugin->getProgramName (i).toRawUTF8(),
+                     20.0 * std::log10 (std::max (rms, 1.0e-9)), (double) peak);
+        if (! finite) ++nonFinite;
+        if (instrument && rms < 1.0e-3) ++quiet;
+        if (instrument && peak > 0.98f) ++clipped;
+    }
+    check (wrongProgram == 0, "every program is selected by setCurrentProgram");
+    check (unchanged == 0, "every preset changes parameters through the wrapper");
+    check (nonFinite == 0, "every preset produces finite output");
+    if (instrument)
+    {
+        check (quiet == 0, "every preset is audible (RMS above -60 dBFS)");
+        check (clipped == 0, "no preset clips a three-note chord (peak below 0.98)");
+    }
+
+    // The program number travels with the state.
+    const int k = n / 2;
+    plugin->setCurrentProgram (k);
+    host.processBlock (silence);
+    juce::MemoryBlock state;
+    plugin->getStateInformation (state);
+    plugin->setCurrentProgram (0);
+    host.processBlock (silence);
+    plugin->setStateInformation (state.getData(), (int) state.getSize());
+    host.processBlock (silence);
+    check (plugin->getCurrentProgram() == k, "the current program survives a state round trip");
+
+    plugin->setCurrentProgram (0);
+    for (int b = 0; b < 4; ++b) host.processBlock (silence);
+    bool allDefault = true;
+    for (auto* p : plugin->getParameters())
+        if (! isWrapperParameter (*p) && std::fabs (p->getValue() - p->getDefaultValue()) > 1.0e-4f)
+        {
+            std::printf ("    %s is not at its default after program 0\n", p->getName (64).toRawUTF8());
+            allDefault = false;
+        }
+    check (allDefault, "program 0 returns every parameter to its default");
+}
+
 void testStrata (Host& host)
 {
     std::printf ("Strata checks\n");
@@ -615,6 +722,20 @@ void testVerdant (Host& host)
     check (rmsOf (preset, 0, preset.size()) > 1.0e-4, "factory preset 1 produces sound");
     host.midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
     for (int b = 0; b < 100; ++b) host.processBlock (silence);
+
+    // The newest preset (the end of the latest expansion) loads and plays through the wrapper too.
+    const int last = host.plugin->getNumPrograms() - 1;
+    check (last >= 198, "the expansion presets are in the program list (199 or more)");
+    host.plugin->setCurrentProgram (last);
+    host.processBlock (silence);
+    check (host.plugin->getCurrentProgram() == last, "the last program is selected");
+    std::printf ("    last program: %d '%s'\n", last, host.plugin->getProgramName (last).toRawUTF8());
+    std::vector<float> newest;
+    host.midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0);
+    for (int b = 0; b < 40; ++b) host.processBlock (silence, &newest);
+    check (host.outputIsFinite() && rmsOf (newest, 0, newest.size()) > 1.0e-4, "the last factory preset produces sound");
+    host.midi.addEvent (juce::MidiMessage::noteOff (1, 48), 0);
+    for (int b = 0; b < 100; ++b) host.processBlock (silence);
 }
 
 } // namespace
@@ -648,6 +769,9 @@ int main (int argc, char** argv)
     else if (which == "Frisson") testFrisson (host);
     else if (which == "Verdant") testVerdant (host);
     else { std::printf ("unknown plugin tag %s\n", which.toRawUTF8()); return 2; }
+
+    if (which != "Verdant")   // Verdant's bank has its own checks (testVerdant and verdant_tests)
+        factoryProgramChecks (host, which == "Strata");
 
     host.plugin->releaseResources();
     host.plugin.reset();

@@ -6,4 +6,5 @@ ap_add_plugin(VoxNote
     VST3_CATEGORIES Fx Tools
     SOURCES
         PluginProcessor.cpp
+        Presets.cpp
         PluginEditor.cpp)

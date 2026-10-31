@@ -62,6 +62,18 @@ exercises the shared oscillator, LFO and smoother DSP in a real host.
   lock is juce::Synthesiser's uncontended one.
 - R11. Passes `host_Strata` and pluginval strictness 10 in CI on Windows,
   macOS and Linux.
+- R12. **Factory presets.** 32 presets in six categories: Bass, Lead, Pad,
+  Keys, Pluck and FX. `host_Strata` also requires each to stay audible and
+  below 0.98 peak on a three-note chord. Factory presets (`Presets.cpp`,
+  through `ap::plug::Programs`) are the host program list. Program 0 is
+  "Default" (every parameter at its default, the state a new instance opens
+  in); loading any preset first returns every parameter to its default, so
+  nothing carries over. The current program number is saved in the state
+  (attribute `program`). The editor's preset strip steps through the bank or
+  picks from a menu grouped by category, and marks the name with `*` once a
+  parameter differs from the preset. The order is frozen once released: new
+  presets are appended. `host_Strata` loads every program and checks it
+  changes parameters and plays finite audio.
 
 ## 4. Design
 
@@ -157,7 +169,7 @@ LFO 2 · Filter, Global, Effects.
 
 ## 6. Out of scope / later
 
-- Presets and a browser (v0.1 has one "Default" program), a mod matrix, more
+- User presets and a preset browser beyond the factory strip, a mod matrix, more
   LFO destinations, tempo-synced LFOs and delay, a legato/mono mode, MPE and
   aftertouch, a 24 dB/oct filter, and oversampled drive.
 - Known v0.1 gaps besides R1:

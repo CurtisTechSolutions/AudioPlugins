@@ -80,6 +80,21 @@ chipmunk-like. The chain defaults (compressor at −18 dB, 3:1; low cut at
 - R12. Output is finite for any input. No allocation after `prepareToPlay`.
   State is APVTS XML with root `INTONE`. Parameter IDs and names are frozen.
 - R13. Passes `host_Intone` and pluginval strictness 10 in CI on all three OSes.
+- R14. **Factory presets.** 26 presets in four categories: Correction
+  (transparent to tight, chromatic so they work in any key), Hard Tune
+  (instant snapping to named keys and scales), Vocal Chain (correction with
+  de-esser, compressor and EQ settings for pop, rap, R&B, rock, choir, podcast
+  and broadcast) and Creative (octave and interval shifts, blends, whole-tone
+  and custom scales, telephone). Factory presets (`Presets.cpp`, through
+  `ap::plug::Programs`) are the host program list. Program 0 is "Default"
+  (every parameter at its default, the state a new instance opens in); loading
+  any preset first returns every parameter to its default, so nothing carries
+  over. The current program number is saved in the state (attribute
+  `program`). The editor's preset strip steps through the bank or picks from a
+  menu grouped by category, and marks the name with `*` once a parameter
+  differs from the preset. The order is frozen once released: new presets are
+  appended. `host_Intone` loads every program and checks it changes parameters
+  and plays finite audio.
 
 ## 4. Design
 
@@ -160,4 +175,4 @@ Tone & Output with an output meter.
   controls, MIDI-driven target notes, and graphical note editing.
 - Per-section bypass switches (the de-esser and compressor are in circuit at
   their defaults), linked stereo dynamics, and oversampling.
-- Presets, AU/CLAP, and Developer-ID signing and notarization.
+- User presets, AU/CLAP, and Developer-ID signing and notarization.

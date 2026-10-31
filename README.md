@@ -6,12 +6,12 @@ Linux builds too and is used for validation.
 
 | Plugin | What it is | Type |
 |---|---|---|
-| **Strata** | Polyphonic subtractive synth — 2 PolyBLEP oscillators with unison, sub + noise, multimode SVF with drive, 2 ADSRs, 2 LFOs, glide, chorus / delay / reverb | Instrument |
-| **Verdant** | Flagship wavetable synth: 2 wavetable oscillators (16 factory tables, WAV import, oversampled mipmaps) with 7 warp modes and 16-voice unison, sub + 5 noise colours, 2 multimode filters (11 types, serial / parallel), 4 LFOs / 3 envelopes / 8 macros into a 24-slot drag-to-modulate matrix, reorderable 8-slot FX rack, 172 factory presets on a sound map — plus a living drift engine, sample-to-patch matching, physics modulators, a key-aware arp/sequencer with pitch snap to key, patch breeding, sympathetic-string memory and a spectral paint oscillator | Instrument |
-| **VoxNote** | Hum or sing into the mic, get MIDI out: YIN pitch tracking, onset / release gating, retrigger vs. pitch-bend logic, scale snapping, velocity from level, built-in monitor tone | Audio FX with MIDI output |
-| **Intone** | Pitch correction to a key/scale (incl. 12-note custom scale) via formant-preserving PSOLA, retune speed + amount, plus a vocal chain: low cut, de-esser, compressor, body / presence / air EQ | Audio FX |
-| **Ducker** | Sidechain compressor with lookahead and SC low-cut, internal-detector mode, and a tempo-synced *ghost* ducking mode that needs no sidechain routing at all | Audio FX with sidechain input |
-| **Frisson** | Nine-knob sound enhancer where each knob is named for the listener response it targets — WEIGHT, WARMTH, RUSH, FOCUS, SHINE, SPACE, GROOVE, CHILLS, LIFE — plus a DOSE master and a loudness-matched MATCH bypass. Each knob is a separately tested module (see `docs/prd/`) | Audio FX (bus or track) |
+| **Strata** | Polyphonic subtractive synth — 2 PolyBLEP oscillators with unison, sub + noise, multimode SVF with drive, 2 ADSRs, 2 LFOs, glide, chorus / delay / reverb, 32 factory presets | Instrument |
+| **Verdant** | Flagship wavetable synth: 2 wavetable oscillators (16 factory tables, WAV import, oversampled mipmaps) with 7 warp modes and 16-voice unison, sub + 5 noise colours, 2 multimode filters (11 types, serial / parallel), 4 LFOs / 3 envelopes / 8 macros into a 24-slot drag-to-modulate matrix, reorderable 8-slot FX rack, 199 factory presets on a sound map — plus a living drift engine, sample-to-patch matching, physics modulators, a key-aware arp/sequencer with pitch snap to key, patch breeding, sympathetic-string memory and a spectral paint oscillator | Instrument |
+| **VoxNote** | Hum or sing into the mic, get MIDI out: YIN pitch tracking, onset / release gating, retrigger vs. pitch-bend logic, scale snapping, velocity from level, built-in monitor tone, 20 factory presets | Audio FX with MIDI output |
+| **Intone** | Pitch correction to a key/scale (incl. 12-note custom scale) via formant-preserving PSOLA, retune speed + amount, plus a vocal chain: low cut, de-esser, compressor, body / presence / air EQ, 26 factory presets | Audio FX |
+| **Ducker** | Sidechain compressor with lookahead and SC low-cut, internal-detector mode, and a tempo-synced *ghost* ducking mode that needs no sidechain routing at all, 27 factory presets | Audio FX with sidechain input |
+| **Frisson** | Nine-knob sound enhancer where each knob is named for the listener response it targets — WEIGHT, WARMTH, RUSH, FOCUS, SHINE, SPACE, GROOVE, CHILLS, LIFE — plus a DOSE master and a loudness-matched MATCH bypass. Each knob is a separately tested module (see `docs/prd/`), 27 factory presets | Audio FX (bus or track) |
 
 The names are working titles; rename in each `plugins/<Name>/CMakeLists.txt` (`PRODUCT_NAME`)
 and the editor title. Keep `PLUGIN_CODE` stable once a plugin has been used in sessions,
@@ -25,8 +25,9 @@ core/            Header-only DSP (namespace ap), no JUCE dependency, unit-tested
                  Oscillator (PolyBLEP + LFO), Filters (biquad, smoother), Dynamics,
                  Scales, Tempo (divisions + ghost-duck envelope), Math
 common/          JUCE-side shared code: LookAndFeel, generic parameter panels,
-                 meters/readouts, editor base, parameter-layout helpers
-plugins/         One folder per plugin: PluginProcessor + PluginEditor + CMakeLists
+                 meters/readouts, editor base, parameter-layout helpers, factory
+                 presets as programs (Programs.h) and the preset strip (PresetBar)
+plugins/         One folder per plugin: PluginProcessor + PluginEditor + Presets + CMakeLists
 plugins/Frisson/modules/   Frisson's nine knob modules (JUCE-free, one PRD each in docs/prd/)
 plugins/Verdant/engine/    Verdant's synth engine (JUCE-free static lib verdant_engine)
 plugins/Verdant/ui/        Verdant's editor: theme, knobs, the six pages and their visualisers
@@ -108,9 +109,12 @@ Proper Developer-ID signing + notarization is a TODO before sharing with other p
 - `host_<Plugin>` — `VST3HostTest` loads the built `.vst3` through JUCE's headless VST3
   host and checks real behaviour: the synths play C4 in tune and decay to silence (Verdant
   also checks voice stealing, pitch bend, the sustain pedal, a state round trip and its
-  factory presets as programs), VoxNote turns a 224 Hz tone into A3 with pitch bend and a matching note-off, Intone
+  factory presets as programs, up to the newest expansion preset), VoxNote turns a 224 Hz tone into A3 with pitch bend and a matching note-off, Intone
   pulls a sharp A3 to 220 Hz and snaps to C major, Ducker ducks >6 dB from the sidechain
-  and pumps on the beat in ghost mode with the right latency.
+  and pumps on the beat in ghost mode with the right latency. For the other five plugins it
+  also loads every factory preset through the program list, checks that each one changes
+  parameters and plays finite (Strata: audible, unclipped) audio, and that the program
+  number survives a state round trip.
 - CI and release builds additionally run [pluginval](https://github.com/Tracktion/pluginval)
   at strictness 10 on every plugin on every platform.
 
@@ -128,6 +132,15 @@ merge the release PR when you want to ship. Details, version-bump rules and the 
 signing/notarisation secrets are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Using the plugins
+
+**Presets.** Every plugin ships a factory bank, also exposed to the host as its program list.
+In Strata, VoxNote, Intone, Ducker and Frisson the *Preset* strip under the header steps
+through it with the arrows or picks from a menu grouped by category; a `*` after the name
+means you have changed something since loading it, and choosing it again reloads it. Program 0
+is always *Default*. Verdant has its own browser (preset pill, BROWSE page and sound map).
+Bank order is frozen once released (hosts store program numbers), so new presets are only
+ever appended. The banks live in `plugins/<Name>/Presets.cpp`; Verdant's in
+`plugins/Verdant/engine/FactoryPresets_*.cpp`.
 
 **VoxNote** is an *audio effect that outputs MIDI*. Put it on the vocal/mic track, then on
 an instrument track set MIDI input to "VoxNote" (Ableton: *MIDI From → track → VoxNote*;
