@@ -6,9 +6,11 @@ add_executable(ap_tests
     test_shifter.cpp
     test_synthesis.cpp
     test_dynamics.cpp
-    test_core_extras.cpp)
+    test_core_extras.cpp
+    test_queue.cpp)
 
-target_link_libraries(ap_tests PRIVATE ap_core)
+find_package(Threads REQUIRED)
+target_link_libraries(ap_tests PRIVATE ap_core Threads::Threads)
 
 if(MSVC)
     target_compile_options(ap_tests PRIVATE /W4)

@@ -6,4 +6,9 @@ ap_add_plugin(VoxNote
     VST3_CATEGORIES Fx Tools
     SOURCES
         PluginProcessor.cpp
-        PluginEditor.cpp)
+        PluginEditor.cpp
+        MidiPortOut.cpp)
+
+# MidiPortOut sends straight to a system MIDI port (loopMIDI / IAC / ALSA) for
+# hosts that do not route MIDI out of an audio effect.
+target_link_libraries(VoxNote PRIVATE juce::juce_audio_devices)

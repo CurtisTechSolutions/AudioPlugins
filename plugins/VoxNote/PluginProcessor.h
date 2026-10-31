@@ -2,9 +2,12 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "MidiPortOut.h"
+
 #include <ap/NoteTracker.h>
 #include <ap/Oscillator.h>
 #include <ap/PitchTracker.h>
+#include <ap/SpscQueue.h>
 
 #include <array>
 #include <atomic>
@@ -48,6 +51,8 @@ public:
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     using juce::AudioProcessor::processBlock;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    using juce::AudioProcessor::processBlockBypassed;
+    void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -72,11 +77,32 @@ public:
     // For the editor.
     std::atomic<float> detectedHz { 0.0f };
     std::atomic<float> inputLevel { 0.0f };
+    std::atomic<float> inputRms { 0.0f };          // linear RMS of the latest hop (what Gate compares against)
     std::atomic<int>   currentNote { -1 };
+    std::atomic<int>   lastVelocity { 0 };
+    std::atomic<juce::uint32> midiEventCount { 0 };   // every note-on/off/bend sent; the editor blinks on change
+
+    /** One analysis hop as the editor's pitch display sees it. */
+    struct UiFrame
+    {
+        float midi  = 0.0f;      // detected pitch (fractional MIDI, after Transpose), 0 = unvoiced
+        float rmsDb = -120.0f;   // hop level
+        float bend  = 0.0f;      // current bend in semitones
+        juce::int16 note = -1;   // sounding output note, -1 = none
+        bool  active = false;    // voiced, confident and above the gate
+        bool  noteStart = false; // a note-on happened in this hop
+    };
+    static constexpr size_t uiFrameCapacity = 2048;
+    ap::SpscQueue<UiFrame, uiFrameCapacity> uiFrames;   // audio thread -> editor (frames are dropped while nobody reads)
+
+    /** Optional direct output to a system MIDI port (for hosts that drop plugin MIDI, e.g. FL Studio). */
+    MidiPortOut midiPort;
+    void setMidiPort (const juce::String& identifier, const juce::String& name);
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void updateTrackerParams();
+    void emit (juce::MidiBuffer&, const juce::MidiMessage&, int samplePos);
 
     // Three trackers tuned for different ranges; only one is fed at a time so
     // switching never allocates on the audio thread.
@@ -91,6 +117,8 @@ private:
     double sr = 44100.0;
     std::atomic<bool> pendingAllNotesOff { false };
     int activeChannel = 1;    // channel the sounding note was started on
+    bool toPort = false;      // this block also goes to midiPort
+    double blockStartMs = 0.0;
 
     struct Raw
     {

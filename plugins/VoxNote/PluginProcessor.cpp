@@ -12,6 +12,10 @@ namespace
 {
     constexpr int kHop = 256;
 
+    // Not parameters: the direct MIDI port is a device choice, saved as properties of the state tree.
+    constexpr const char* stateMidiPortId = "midiPortId";
+    constexpr const char* stateMidiPortName = "midiPortName";
+
     struct TrackingPreset { float minHz, maxHz; int window; };
     constexpr TrackingPreset kPresets[3] = {
         { 40.0f, 1000.0f, 2048 },   // Low: bass voices / instruments, more latency
@@ -91,7 +95,7 @@ void Processor::prepareToPlay (double sampleRate, int)
 
 void Processor::reset()
 {
-    // Called by hosts on transport stop / bypass: make sure no note hangs.
+    // Called by hosts on transport stop: make sure no note hangs.
     noteTracker.reset();
     monitorTarget = 0.0f;
     pendingAllNotesOff.store (true);
@@ -133,11 +137,23 @@ void Processor::updateTrackerParams()
         t.setThreshold (ap::lerp (0.08f, 0.35f, prm.sensitivity->load() * 0.01f));
 }
 
+void Processor::emit (juce::MidiBuffer& midi, const juce::MidiMessage& m, int samplePos)
+{
+    midi.addEvent (m, samplePos);
+    if (toPort)
+        midiPort.push (m, blockStartMs + 1000.0 * samplePos / sr);
+    midiEventCount.fetch_add (1, std::memory_order_relaxed);
+}
+
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
     midi.clear();
     updateTrackerParams();
+
+    // Offline renders run faster than real time, so a live port would get the notes at the wrong speed.
+    toPort = midiPort.isActive() && ! isNonRealtime();
+    blockStartMs = toPort ? juce::Time::getMillisecondCounterHiRes() : 0.0;
 
     const int numSamples = buffer.getNumSamples();
     const int numIn = getTotalNumInputChannels();
@@ -146,7 +162,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     auto& tracker = trackers[(size_t) activeTracker];
 
     if (pendingAllNotesOff.exchange (false))
-        midi.addEvent (juce::MidiMessage::allNotesOff (activeChannel), 0);
+        emit (midi, juce::MidiMessage::allNotesOff (activeChannel), 0);
 
     // Feed the tracker sample by sample so each frame's events land at the
     // right position inside the block.
@@ -161,30 +177,44 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         tracker.process (&s, 1, [&] (const ap::PitchTracker::Frame& f)
         {
             detectedHz.store (f.voiced ? f.frequency : 0.0f, std::memory_order_relaxed);
+            inputRms.store (ap::dbToGain (f.rmsDb), std::memory_order_relaxed);
+            bool noteStart = false;
             noteTracker.processFrame (f, [&] (const ap::NoteTracker::Event& e)
             {
                 switch (e.type)
                 {
                     case ap::NoteTracker::Event::Type::NoteOn:
                         activeChannel = channel;
-                        midi.addEvent (juce::MidiMessage::noteOn (channel, e.note, (juce::uint8) e.velocity), i);
+                        emit (midi, juce::MidiMessage::noteOn (channel, e.note, (juce::uint8) e.velocity), i);
                         monitorTarget = ap::midiToHz ((float) e.note);
                         monitorBend = 0.0f;
+                        lastVelocity.store (e.velocity, std::memory_order_relaxed);
+                        noteStart = true;
                         break;
                     case ap::NoteTracker::Event::Type::NoteOff:
-                        midi.addEvent (juce::MidiMessage::noteOff (activeChannel, e.note), i);
+                        emit (midi, juce::MidiMessage::noteOff (activeChannel, e.note), i);
                         monitorTarget = 0.0f;
                         break;
                     case ap::NoteTracker::Event::Type::PitchBend:
                     {
                         const int wheel = juce::jlimit (0, 16383, (int) std::lround (8192.0f + e.bend * 8191.0f));
-                        midi.addEvent (juce::MidiMessage::pitchWheel (activeChannel, wheel), i);
+                        emit (midi, juce::MidiMessage::pitchWheel (activeChannel, wheel), i);
                         monitorBend = e.bend * prm.bendRange->load();
                         break;
                     }
                 }
             });
             currentNote.store (noteTracker.currentMidi(), std::memory_order_relaxed);
+
+            const auto& np = noteTracker.getParams();
+            UiFrame u;
+            u.midi = f.voiced ? f.midi + (float) np.transpose : 0.0f;
+            u.rmsDb = f.rmsDb;
+            u.active = f.voiced && f.confidence >= np.minConfidence && f.rmsDb >= np.gateDb;
+            u.note = (juce::int16) noteTracker.currentMidi();
+            u.bend = u.note >= 0 ? monitorBend : 0.0f;
+            u.noteStart = noteStart;
+            uiFrames.push (u);
         });
     }
     inputLevel.store (peak, std::memory_order_relaxed);
@@ -218,6 +248,37 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     }
 }
 
+void Processor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+{
+    // Bypassed: audio passes through untouched and any sounding note is ended, so
+    // nothing hangs on the instrument (host or port) while VoxNote is switched off.
+    midi.clear();
+    toPort = midiPort.isActive() && ! isNonRealtime();
+    blockStartMs = toPort ? juce::Time::getMillisecondCounterHiRes() : 0.0;
+    if (noteTracker.isPlaying())
+    {
+        emit (midi, juce::MidiMessage::noteOff (activeChannel, noteTracker.currentMidi()), 0);
+        if (std::fabs (monitorBend) > 0.0f)
+            emit (midi, juce::MidiMessage::pitchWheel (activeChannel, 8192), 0);
+    }
+    noteTracker.reset();
+    monitorTarget = 0.0f;
+    monitorBend = 0.0f;
+    monitorEnv = 0.0f;
+    currentNote.store (-1, std::memory_order_relaxed);
+    detectedHz.store (0.0f, std::memory_order_relaxed);
+
+    for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
+        buffer.copyFrom (ch, 0, buffer, 0, 0, buffer.getNumSamples());
+}
+
+void Processor::setMidiPort (const juce::String& identifier, const juce::String& name)
+{
+    midiPort.select (identifier, name);
+    apvts.state.setProperty (stateMidiPortId, identifier, nullptr);
+    apvts.state.setProperty (stateMidiPortName, name, nullptr);
+}
+
 juce::AudioProcessorEditor* Processor::createEditor()
 {
     return new Editor (*this);
@@ -233,7 +294,12 @@ void Processor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
+        {
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+            // Hosts may restore state off the message thread; the port is opened there.
+            midiPort.selectAsync (apvts.state.getProperty (stateMidiPortId).toString(),
+                                  apvts.state.getProperty (stateMidiPortName).toString());
+        }
 }
 
 } // namespace voxnote

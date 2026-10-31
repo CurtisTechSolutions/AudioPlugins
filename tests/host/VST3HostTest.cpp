@@ -278,6 +278,56 @@ void testVoxNote (Host& host)
     for (int b = 0; b < 10; ++b)
         host.processBlock ([] (int, int, juce::int64 n) { return tone (220.0, n, 0.3); }, &out);
     check (rmsOf (out, kBlock * 2, out.size()) < 1.0e-6, "Audio Thru off mutes the pass-through");
+    host.setParam ("Audio Thru", "On");
+
+    auto countNotes = [&host] (size_t from, int& ons, int& offs)
+    {
+        ons = offs = 0;
+        for (size_t i = from; i < host.midiOut.size(); ++i)
+        {
+            if (host.midiOut[i].isNoteOn()) ++ons;
+            else if (host.midiOut[i].isNoteOff()) ++offs;
+        }
+    };
+    auto voice = [] (int, int, juce::int64 n) { return tone (196.0, n, 0.3, 6); };
+
+    // Bypassing mid-note ends the note (nothing hangs on the instrument), and the
+    // plugin still tracks again once it is switched back on.
+    for (int b = 0; b < 40; ++b) host.processBlock ([] (int, int, juce::int64) { return 0.0f; });
+    size_t mark = host.midiOut.size();
+    for (int b = 0; b < 30; ++b) host.processBlock (voice);
+    int ons = 0, offs = 0;
+    countNotes (mark, ons, offs);
+    check (ons >= 1 && offs == ons - 1, "a held tone leaves exactly one note sounding");
+    if (auto* bypass = host.plugin->getBypassParameter())
+    {
+        bypass->setValueNotifyingHost (1.0f);
+        for (int b = 0; b < 4; ++b) host.processBlock (voice);
+        countNotes (mark, ons, offs);
+        check (ons >= 1 && offs == ons, "bypass mid-note sends the note-off");
+        const size_t whileBypassed = host.midiOut.size();
+        for (int b = 0; b < 10; ++b) host.processBlock (voice);
+        check (host.midiOut.size() == whileBypassed, "no MIDI while bypassed");
+        bypass->setValueNotifyingHost (0.0f);
+        mark = host.midiOut.size();
+        for (int b = 0; b < 30; ++b) host.processBlock (voice);
+        countNotes (mark, ons, offs);
+        check (ons >= 1, "tracking resumes after un-bypassing");
+    }
+    else
+    {
+        check (false, "the plugin exposes a bypass parameter");
+    }
+
+    // Host reset mid-note (transport stop): the next block opens with All Notes Off (R9).
+    mark = host.midiOut.size();
+    host.plugin->reset();
+    host.processBlock ([] (int, int, juce::int64) { return 0.0f; });
+    bool allOff = false;
+    for (size_t i = mark; i < host.midiOut.size(); ++i)
+        allOff = allOff || host.midiOut[i].isAllNotesOff();
+    check (allOff, "reset() is followed by All Notes Off");
+    for (int b = 0; b < 40; ++b) host.processBlock ([] (int, int, juce::int64) { return 0.0f; });
 }
 
 void testIntone (Host& host)
