@@ -69,21 +69,18 @@ public:
         return index >= 0 && index < size() ? bank[(size_t) index].name : juce::String();
     }
 
-    /** Loads a preset (the host's setCurrentProgram). Safe on any thread the host calls it from. */
+    /** Loads a preset (the host's setCurrentProgram). Safe on any thread the host calls it from.
+
+        Every parameter is notified, even one already at its preset value: the host may still hold a
+        value it sent that the plugin snapped or has not received yet (VST3 delivers edits with the next
+        block), and only a notification brings the host's view back in line. The VST3 wrapper's own
+        Program parameter calls this too, so hosts that randomise it (pluginval) depend on it. */
     void setCurrentProgram (int index)
     {
         if (index < 0 || index >= size()) return;
         current.store (index);
         for (auto* p : params)
-        {
-            const float target = targetValue (*p, bank[(size_t) index]);
-            if (std::fabs (p->getValue() - target) > 1.0e-6f)
-            {
-                p->beginChangeGesture();
-                p->setValueNotifyingHost (target);
-                p->endChangeGesture();
-            }
-        }
+            p->setValueNotifyingHost (targetValue (*p, bank[(size_t) index]));
     }
 
     /** Loads a preset chosen in the editor and tells the host the program changed. */
@@ -106,10 +103,16 @@ public:
 
     // ---- State: the program number travels in the saved state as an attribute.
     void saveTo (juce::ValueTree& state) const { state.setProperty (kStateProperty, getCurrentProgram(), nullptr); }
+
+    /** Call after the APVTS state has been replaced: restores the program number and notifies the host
+        of every parameter, because replaceState() stays silent about values that did not change while
+        the host may still show a different one (see setCurrentProgram). */
     void restoreFrom (const juce::XmlElement& xml)
     {
         const int p = xml.getIntAttribute (kStateProperty, 0);
         current.store (p >= 0 && p < size() ? p : 0);
+        for (auto* param : params)
+            param->setValueNotifyingHost (param->getValue());
     }
 
     /** Bank mistakes: duplicate or empty names, values that name no parameter or fall outside its

@@ -202,6 +202,45 @@ void commonChecks (Host& host)
 /** The factory presets of the APVTS plugins: exposed as programs (program 0 "Default"), each one
     changes parameters through the VST3 wrapper, plays finite (instruments: audible and unclipped)
     audio, and the program number survives a state round trip. */
+/** pluginval's "Plugin state restoration", run the way pluginval meets it (from program 0): save, set
+    every automatable parameter (the wrapper's Program parameter included, which loads a preset) to a
+    random value, restore, and expect the saved values back as the host sees them. */
+void stateRestorationCheck (Host& host)
+{
+    std::printf ("State restoration (pluginval style)\n");
+    auto silence = [] (int, int, juce::int64) { return 0.0f; };
+    auto& params = host.plugin->getParameters();
+    int notRestored = 0;
+
+    for (int seed = 1; seed <= 20; ++seed)   // the failure needs particular random draws, so try many
+    {
+        juce::Random r (seed);
+        host.plugin->setCurrentProgram (0);   // pluginval's programs test returns to the program it found
+        for (int b = 0; b < 4; ++b) host.processBlock (silence);
+
+        juce::MemoryBlock saved;
+        host.plugin->getStateInformation (saved);
+        std::vector<float> before;
+        for (auto* p : params) before.push_back (p->getValue());
+
+        for (auto* p : params)
+            if (p->isAutomatable() && p->getName (64) != "Bypass")
+                p->setValueNotifyingHost (r.nextFloat());
+        host.plugin->setStateInformation (saved.getData(), (int) saved.getSize());
+
+        for (int i = 0; i < params.size(); ++i)
+            if (std::fabs (params[i]->getValue() - before[(size_t) i]) > 0.1f)
+            {
+                if (notRestored < 10)
+                    std::printf ("    seed %d: %s not restored: %.3f, saved %.3f\n", seed, params[i]->getName (64).toRawUTF8(),
+                                 params[i]->getValue(), before[(size_t) i]);
+                ++notRestored;
+            }
+        host.processBlock (silence);
+    }
+    check (notRestored == 0, "randomised parameters (Program included) come back on setStateInformation");
+}
+
 /** The program-change and bypass parameters the JUCE VST3 wrapper adds of its own. */
 bool isWrapperParameter (const juce::AudioProcessorParameter& p)
 {
@@ -772,6 +811,7 @@ int main (int argc, char** argv)
 
     if (which != "Verdant")   // Verdant's bank has its own checks (testVerdant and verdant_tests)
         factoryProgramChecks (host, which == "Strata");
+    stateRestorationCheck (host);
 
     host.plugin->releaseResources();
     host.plugin.reset();
