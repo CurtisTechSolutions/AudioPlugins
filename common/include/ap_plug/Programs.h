@@ -104,15 +104,24 @@ public:
     // ---- State: the program number travels in the saved state as an attribute.
     void saveTo (juce::ValueTree& state) const { state.setProperty (kStateProperty, getCurrentProgram(), nullptr); }
 
-    /** Call after the APVTS state has been replaced: restores the program number and notifies the host
-        of every parameter, because replaceState() stays silent about values that did not change while
-        the host may still show a different one (see setCurrentProgram). */
+    /** Call after the APVTS state has been replaced: restores the program number and snaps every
+        parameter to a legal value of its range.
+
+        The snap matters for toggles: AudioParameterBool keeps the raw value a host sent (say 0.84,
+        which reads as "on"), and replaceState() leaves a parameter alone when its de-normalised value
+        already matches the saved one. The raw 0.84 would then survive the restore and be reported to
+        the host instead of the saved 1.0 (pluginval "Plugin state restoration"). */
     void restoreFrom (const juce::XmlElement& xml)
     {
         const int p = xml.getIntAttribute (kStateProperty, 0);
         current.store (p >= 0 && p < size() ? p : 0);
         for (auto* param : params)
-            param->setValueNotifyingHost (param->getValue());
+        {
+            const auto& range = param->getNormalisableRange();
+            const float exact = range.convertTo0to1 (range.snapToLegalValue (range.convertFrom0to1 (param->getValue())));
+            if (! juce::exactlyEqual (exact, param->getValue()))
+                param->setValueNotifyingHost (exact);
+        }
     }
 
     /** Bank mistakes: duplicate or empty names, values that name no parameter or fall outside its

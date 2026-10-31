@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <memory>
+#include <thread>
 #include <iterator>
 #include <vector>
 
@@ -202,15 +203,22 @@ void commonChecks (Host& host)
 /** The factory presets of the APVTS plugins: exposed as programs (program 0 "Default"), each one
     changes parameters through the VST3 wrapper, plays finite (instruments: audible and unclipped)
     audio, and the program number survives a state round trip. */
-/** pluginval's "Plugin state restoration", run the way pluginval meets it (from program 0): save, set
-    every automatable parameter (the wrapper's Program parameter included, which loads a preset) to a
-    random value, restore, and expect the saved values back as the host sees them. */
+/** pluginval's "Plugin state restoration", run the way pluginval meets it: from program 0 with the
+    transport stopped, save, set every automatable parameter (the wrapper's Program parameter included,
+    which loads a preset) to a random value from a non-message thread, restore, and expect the saved
+    values back as the host sees them. A toggle left holding a raw value (0.84 for "on") fails it. */
 void stateRestorationCheck (Host& host)
 {
     std::printf ("State restoration (pluginval style)\n");
     auto silence = [] (int, int, juce::int64) { return 0.0f; };
     auto& params = host.plugin->getParameters();
     int notRestored = 0;
+
+    // With the transport stopped the VST3 wrapper passes edits straight to the processor, so a toggle
+    // can receive a raw value such as 0.84 (pluginval runs this way).
+    const bool wasPlaying = host.playHead.playing;
+    host.playHead.playing = false;
+    for (int b = 0; b < 2; ++b) host.processBlock (silence);
 
     for (int seed = 1; seed <= 20; ++seed)   // the failure needs particular random draws, so try many
     {
@@ -223,9 +231,15 @@ void stateRestorationCheck (Host& host)
         std::vector<float> before;
         for (auto* p : params) before.push_back (p->getValue());
 
-        for (auto* p : params)
-            if (p->isAutomatable() && p->getName (64) != "Bypass")
-                p->setValueNotifyingHost (r.nextFloat());
+        // pluginval sets them from its test thread, so the host queues them for the edit controller and
+        // delivers them, in parameter order, when setStateInformation() flushes the queue.
+        std::thread setter ([&]
+        {
+            for (auto* p : params)
+                if (p->isAutomatable() && p->getName (64) != "Bypass")
+                    p->setValueNotifyingHost (r.nextFloat());
+        });
+        setter.join();
         host.plugin->setStateInformation (saved.getData(), (int) saved.getSize());
 
         for (int i = 0; i < params.size(); ++i)
@@ -239,6 +253,7 @@ void stateRestorationCheck (Host& host)
         host.processBlock (silence);
     }
     check (notRestored == 0, "randomised parameters (Program included) come back on setStateInformation");
+    host.playHead.playing = wasPlaying;
 }
 
 /** The program-change and bypass parameters the JUCE VST3 wrapper adds of its own. */
