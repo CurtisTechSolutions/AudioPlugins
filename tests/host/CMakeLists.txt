@@ -22,7 +22,7 @@ target_link_libraries(VST3HostTest PRIVATE
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
 
-set(ap_host_plugins Strata VoxNote Intone Ducker Frisson)
+set(ap_host_plugins Strata VoxNote Intone Ducker Frisson Verdant)
 foreach(plugin IN LISTS ap_host_plugins)
     add_test(NAME host_${plugin}
              COMMAND VST3HostTest "$<GENEX_EVAL:$<TARGET_PROPERTY:${plugin}_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>" ${plugin})

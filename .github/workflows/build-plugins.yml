@@ -35,7 +35,7 @@ permissions:
   contents: read
 
 env:
-  PLUGINS: Strata VoxNote Intone Ducker Frisson
+  PLUGINS: Strata VoxNote Intone Ducker Frisson Verdant
   SCCACHE_GHA_ENABLED: "true"
 
 jobs:
